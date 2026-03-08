@@ -12,3 +12,7 @@ dist-ssr
 __unconfig*
 todos.json
 .cta.json
+.playwright-home
+coverage
+playwright-report
+test-results
