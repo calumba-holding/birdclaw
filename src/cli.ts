@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 import { Command } from "commander";
 import { findArchives } from "#/lib/archive-finder";
+import { importArchive } from "#/lib/archive-import";
 import { ensureBirdclawDirs, getBirdclawPaths } from "#/lib/config";
 import { listInboxItems, scoreInbox } from "#/lib/inbox";
+import { hydrateProfilesFromX } from "#/lib/profile-hydration";
 import {
 	createDmReply,
 	createPost,
@@ -61,6 +64,38 @@ program
 	.action(async () => {
 		const items = await findArchives();
 		print(items, program.opts().json ?? false);
+	});
+
+const importCommand = program
+	.command("import")
+	.description("Import local archive data");
+
+importCommand
+	.command("archive [archivePath]")
+	.description("Import an X/Twitter archive into the local SQLite store")
+	.action(async (archivePath) => {
+		let resolvedArchivePath = archivePath;
+		if (!resolvedArchivePath) {
+			const [latestArchive] = await findArchives();
+			resolvedArchivePath = latestArchive?.path;
+		}
+
+		if (!resolvedArchivePath) {
+			throw new Error(
+				"No archive found. Pass a path or place one in Downloads.",
+			);
+		}
+
+		const result = await importArchive(resolvedArchivePath);
+		print(result, program.opts().json ?? false);
+	});
+
+importCommand
+	.command("hydrate-profiles")
+	.description("Backfill archive-imported profiles from live X metadata")
+	.action(async () => {
+		const result = await hydrateProfilesFromX();
+		print(result, program.opts().json ?? false);
 	});
 
 const searchCommand = program
@@ -251,4 +286,14 @@ program
 		});
 	});
 
-program.parse();
+export async function runCli(argv = process.argv) {
+	await program.parseAsync(argv);
+}
+
+/* v8 ignore next 5 */
+if (process.argv[1]) {
+	const entryUrl = pathToFileURL(process.argv[1]).href;
+	if (import.meta.url === entryUrl) {
+		void runCli();
+	}
+}
