@@ -1,0 +1,224 @@
+#!/usr/bin/env node
+import { spawn } from "node:child_process";
+import process from "node:process";
+import { Command } from "commander";
+import { findArchives } from "#/lib/archive-finder";
+import { ensureBirdclawDirs, getBirdclawPaths } from "#/lib/config";
+import {
+	createDmReply,
+	createPost,
+	createTweetReply,
+	getQueryEnvelope,
+	listDmConversations,
+	listTimelineItems,
+} from "#/lib/queries";
+
+const program = new Command();
+
+function print(data: unknown, asJson: boolean) {
+	if (asJson) {
+		console.log(JSON.stringify(data, null, 2));
+		return;
+	}
+	console.log(data);
+}
+
+program
+	.name("birdclaw")
+	.description("Local-first X workspace")
+	.option("--json", "Emit JSON output");
+
+program
+	.command("init")
+	.description("Create local birdclaw root and seed the database")
+	.action(async () => {
+		const paths = ensureBirdclawDirs();
+		await getQueryEnvelope();
+		print(
+			{
+				ok: true,
+				rootDir: paths.rootDir,
+				dbPath: paths.dbPath,
+				mediaOriginalsDir: paths.mediaOriginalsDir,
+				mediaThumbsDir: paths.mediaThumbsDir,
+			},
+			program.opts().json ?? false,
+		);
+	});
+
+program
+	.command("auth status")
+	.description("Show transport status")
+	.action(async () => {
+		const meta = await getQueryEnvelope();
+		print(meta.transport, program.opts().json ?? false);
+	});
+
+program
+	.command("archive find")
+	.description("Find likely X/Twitter archives on disk")
+	.action(async () => {
+		const items = await findArchives();
+		print(items, program.opts().json ?? false);
+	});
+
+const searchCommand = program
+	.command("search")
+	.description("Search local data");
+
+searchCommand
+	.command("tweets <query>")
+	.option("--resource <resource>", "home or mentions", "home")
+	.option("--replied", "Only replied items")
+	.option("--unreplied", "Only unreplied items")
+	.option("--limit <n>", "Limit results", "20")
+	.action((query, options) => {
+		const replyFilter = options.replied
+			? "replied"
+			: options.unreplied
+				? "unreplied"
+				: "all";
+		const items = listTimelineItems({
+			resource: options.resource === "mentions" ? "mentions" : "home",
+			search: query,
+			replyFilter,
+			limit: Number(options.limit),
+		});
+		print(items, program.opts().json ?? false);
+	});
+
+searchCommand
+	.command("dms <query>")
+	.option("--participant <value>")
+	.option("--min-followers <n>", "Minimum sender follower count")
+	.option("--max-followers <n>", "Maximum sender follower count")
+	.option("--min-influence-score <n>", "Minimum derived influence score")
+	.option("--max-influence-score <n>", "Maximum derived influence score")
+	.option("--sort <mode>", "recent or influence", "recent")
+	.option("--replied", "Only replied threads")
+	.option("--unreplied", "Only unreplied threads")
+	.option("--limit <n>", "Limit results", "20")
+	.action((query, options) => {
+		const replyFilter = options.replied
+			? "replied"
+			: options.unreplied
+				? "unreplied"
+				: "all";
+		const items = listDmConversations({
+			search: query,
+			participant: options.participant,
+			minFollowers: options.minFollowers
+				? Number(options.minFollowers)
+				: undefined,
+			maxFollowers: options.maxFollowers
+				? Number(options.maxFollowers)
+				: undefined,
+			minInfluenceScore: options.minInfluenceScore
+				? Number(options.minInfluenceScore)
+				: undefined,
+			maxInfluenceScore: options.maxInfluenceScore
+				? Number(options.maxInfluenceScore)
+				: undefined,
+			sort: options.sort === "influence" ? "influence" : "recent",
+			replyFilter,
+			limit: Number(options.limit),
+		});
+		print(items, program.opts().json ?? false);
+	});
+
+program
+	.command("dms list")
+	.option("--participant <value>")
+	.option("--min-followers <n>", "Minimum sender follower count")
+	.option("--max-followers <n>", "Maximum sender follower count")
+	.option("--min-influence-score <n>", "Minimum derived influence score")
+	.option("--max-influence-score <n>", "Maximum derived influence score")
+	.option("--sort <mode>", "recent or influence", "recent")
+	.option("--replied", "Only replied threads")
+	.option("--unreplied", "Only unreplied threads")
+	.option("--limit <n>", "Limit results", "20")
+	.action((_, options) => {
+		const replyFilter = options.replied
+			? "replied"
+			: options.unreplied
+				? "unreplied"
+				: "all";
+		const items = listDmConversations({
+			participant: options.participant,
+			minFollowers: options.minFollowers
+				? Number(options.minFollowers)
+				: undefined,
+			maxFollowers: options.maxFollowers
+				? Number(options.maxFollowers)
+				: undefined,
+			minInfluenceScore: options.minInfluenceScore
+				? Number(options.minInfluenceScore)
+				: undefined,
+			maxInfluenceScore: options.maxInfluenceScore
+				? Number(options.maxInfluenceScore)
+				: undefined,
+			sort: options.sort === "influence" ? "influence" : "recent",
+			replyFilter,
+			limit: Number(options.limit),
+		});
+		print(items, program.opts().json ?? false);
+	});
+
+const composeCommand = program
+	.command("compose")
+	.description("Create local/xurl actions");
+
+composeCommand
+	.command("post <text>")
+	.option("--account <accountId>", "Account id", "acct_primary")
+	.action(async (text, options) => {
+		const result = await createPost(options.account, text);
+		print(result, program.opts().json ?? false);
+	});
+
+composeCommand
+	.command("reply <tweetId> <text>")
+	.option("--account <accountId>", "Account id", "acct_primary")
+	.action(async (tweetId, text, options) => {
+		const result = await createTweetReply(options.account, tweetId, text);
+		print(result, program.opts().json ?? false);
+	});
+
+composeCommand
+	.command("dm <conversationId> <text>")
+	.description("Reply inside an existing DM conversation")
+	.action(async (conversationId, text) => {
+		const result = await createDmReply(conversationId, text);
+		print(result, program.opts().json ?? false);
+	});
+
+program
+	.command("db stats")
+	.description("Show local storage and dataset stats")
+	.action(async () => {
+		const meta = await getQueryEnvelope();
+		const paths = getBirdclawPaths();
+		print(
+			{
+				paths,
+				stats: meta.stats,
+				transport: meta.transport,
+			},
+			program.opts().json ?? false,
+		);
+	});
+
+program
+	.command("serve")
+	.description("Run the local web app")
+	.action(() => {
+		const child = spawn("pnpm", ["dev"], {
+			stdio: "inherit",
+			shell: true,
+		});
+		child.on("exit", (code) => {
+			process.exit(code ?? 0);
+		});
+	});
+
+program.parse();
