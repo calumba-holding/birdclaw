@@ -15,6 +15,7 @@ Repo: `steipete/birdclaw`
 - search all history fast, offline
 - provide an AI-sorted inbox so X is less chaotic
 - let the user read, draft, and reply from a local web app or CLI
+- maintain an account-scoped blocklist with add/remove flows
 
 ## Goals
 
@@ -27,8 +28,10 @@ Repo: `steipete/birdclaw`
 - followers/following modeled with current state plus history
 - CLI for scripts and automation
 - local web app for home timeline, mentions/replies, DMs, triage, reply, and AI-assisted workflows
+- local blocklist maintenance for multiple accounts
 - clean minimal UI that keeps focus on tweet/message content
 - DMs surface sender bio and influence context without extra hunting
+- blocklist actions should be local-first and transport-aware
 - easy agent access to archive and live data via filters and structured output
 - reuse proven pieces from `sweetistics`, `bird`, and `xurl`
 - OSS-friendly setup and npm distribution
@@ -115,6 +118,7 @@ Two surfaces, one core:
    - read home timeline
    - read mentions / replies
    - read tweets / threads / DMs
+   - maintain a blocklist
    - triage AI-ranked inbox
    - filter replied vs unreplied items
    - filter DMs by sender follower count and derived influence score
@@ -196,6 +200,7 @@ Includes:
 - home timeline view
 - mentions/replies view
 - DM view
+- blocklist view
 - replied/unreplied filters
 - DM sender bio/context rail
 - DM follower-count + influence-score filters
@@ -278,6 +283,7 @@ Both modes are first-class and must converge on the same canonical tables.
 
 - provider: OpenAI
 - key source: shell environment / `.profile`
+- block/unblock writes follow the same live transport safety rules as compose/reply
 - day-1 AI features:
   - score tweets/messages for signal
   - allow filtering low-signal items out of inbox/views

@@ -70,6 +70,9 @@ birdclaw sync following
 birdclaw search tweets <query>
 birdclaw search dms <query>
 birdclaw dms list
+birdclaw blocks list
+birdclaw blocks add <handle-or-id>
+birdclaw blocks remove <handle-or-id>
 birdclaw show tweet <id>
 birdclaw show thread <id>
 birdclaw show dm <conversation-id>
@@ -186,6 +189,35 @@ Flags:
 - supports replied/unreplied filters
 - supports `--score` to refresh stored OpenAI scores before listing
 - supports `--min-score` and `--hide-low-signal`
+
+### `blocks list`
+
+- list current local blocked profiles
+- account-scoped
+- supports `--json`
+
+Flags:
+- `--account <account-id>`
+- `--search <query>`
+- `--limit <n>`
+
+### `blocks add <handle-or-id>`
+
+- add a local block entry for one account
+- accepts handle, `@handle`, X URL, local profile id, or numeric X user id
+- attempts live block transport via `xurl` when resolvable
+- still records the local block if live transport is unavailable
+
+Flags:
+- `--account <account-id>`
+
+### `blocks remove <handle-or-id>`
+
+- remove a local block entry for one account
+- attempts live unblock transport via `xurl` when resolvable
+
+Flags:
+- `--account <account-id>`
 
 ### `serve`
 

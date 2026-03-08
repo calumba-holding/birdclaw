@@ -70,6 +70,8 @@ interface BirdTransport {
   getTweet(id: string): Promise<TweetRecord | null>;
   postTweet(input: ComposeTweetInput): Promise<PostResult>;
   reply(input: ReplyInput): Promise<PostResult>;
+  blockProfile(input: ProfileActionInput): Promise<ActionResult>;
+  unblockProfile(input: ProfileActionInput): Promise<ActionResult>;
 }
 ```
 
@@ -101,6 +103,10 @@ SQLite only. Kysely schema in code, migrations checked into repo.
   - X users/authors/participants
   - keep bio, follower count, and lightweight influence fields queryable in canonical columns
   - DM surfaces should render sender bio and influence context from here without needing raw payload lookups
+- `blocks`
+  - account-scoped local blocklist
+  - canonical local state for blocklist UI and CLI
+  - live transport result layered on top, not required for local bookkeeping
 - `tweets`
   - canonical tweet rows
   - text, metrics, timestamps, references, author id
@@ -150,6 +156,7 @@ Day-1 search modes:
 - DM sender follower-count filters
 - DM sender derived influence-score filters
 - replied / unreplied filters for mentions and DMs
+- local blocklist maintenance via handle, id, or URL-derived profile match
 
 No vector search required for MVP.
 
