@@ -10,7 +10,11 @@ const config = defineConfig({
 		devtools(),
 		tsconfigPaths({ projects: ["./tsconfig.json"] }),
 		tailwindcss(),
-		tanstackStart(),
+		tanstackStart({
+			router: {
+				routeFileIgnorePattern: "\\.(test|spec)\\.(ts|tsx)$",
+			},
+		}),
 		viteReact(),
 	],
 });

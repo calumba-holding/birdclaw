@@ -1,0 +1,104 @@
+// @vitest-environment node
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { scoreInboxItemWithOpenAI } from "./openai";
+
+beforeEach(() => {
+	process.env.OPENAI_API_KEY = "";
+});
+
+afterEach(() => {
+	process.env.OPENAI_API_KEY = "";
+	delete process.env.BIRDCLAW_OPENAI_MODEL;
+	vi.unstubAllGlobals();
+});
+
+describe("openai inbox scoring", () => {
+	it("fails without an API key", async () => {
+		await expect(
+			scoreInboxItemWithOpenAI({
+				entityKind: "dm",
+				title: "DM",
+				text: "hello",
+				influenceScore: 90,
+				participant: {
+					handle: "sam",
+					displayName: "Sam",
+					bio: "bio",
+					followersCount: 10,
+				},
+			}),
+		).rejects.toThrow("OPENAI_API_KEY");
+	});
+
+	it("returns clamped structured scores", async () => {
+		process.env.OPENAI_API_KEY = "test-key";
+		process.env.BIRDCLAW_OPENAI_MODEL = "gpt-test";
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockResolvedValue(
+				new Response(
+					JSON.stringify({
+						choices: [
+							{
+								message: {
+									content: JSON.stringify({
+										score: 101.6,
+										summary: "Strong ask",
+										reasoning: "Concrete and relevant",
+									}),
+								},
+							},
+						],
+					}),
+				),
+			),
+		);
+
+		const result = await scoreInboxItemWithOpenAI({
+			entityKind: "mention",
+			title: "Mention",
+			text: "question?",
+			influenceScore: 80,
+			participant: {
+				handle: "amelia",
+				displayName: "Amelia",
+				bio: "bio",
+				followersCount: 4200,
+			},
+		});
+
+		expect(result).toEqual({
+			model: "gpt-test",
+			score: 100,
+			summary: "Strong ask",
+			reasoning: "Concrete and relevant",
+		});
+	});
+
+	it("fails when the API returns no content", async () => {
+		process.env.OPENAI_API_KEY = "test-key";
+		vi.stubGlobal(
+			"fetch",
+			vi
+				.fn()
+				.mockResolvedValue(
+					new Response(JSON.stringify({ choices: [{ message: {} }] })),
+				),
+		);
+
+		await expect(
+			scoreInboxItemWithOpenAI({
+				entityKind: "dm",
+				title: "DM",
+				text: "hello",
+				influenceScore: 90,
+				participant: {
+					handle: "sam",
+					displayName: "Sam",
+					bio: "bio",
+					followersCount: 10,
+				},
+			}),
+		).rejects.toThrow("no content");
+	});
+});
