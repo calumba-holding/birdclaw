@@ -20,6 +20,9 @@ function InboxRoute() {
 	const [hideLowSignal, setHideLowSignal] = useState(true);
 	const [refreshTick, setRefreshTick] = useState(0);
 	const [isScoring, setIsScoring] = useState(false);
+	const [activeReplyId, setActiveReplyId] = useState<string | null>(null);
+	const [replyDraft, setReplyDraft] = useState("");
+	const [isSendingReply, setIsSendingReply] = useState(false);
 	const [stats, setStats] = useState<InboxResponse["stats"] | null>(null);
 
 	useEffect(() => {
@@ -65,6 +68,36 @@ function InboxRoute() {
 			setRefreshTick((value) => value + 1);
 		} finally {
 			setIsScoring(false);
+		}
+	}
+
+	async function sendReply(item: InboxItem) {
+		if (!replyDraft.trim()) return;
+		setIsSendingReply(true);
+		try {
+			await fetch("/api/action", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(
+					item.entityKind === "dm"
+						? {
+								kind: "replyDm",
+								conversationId: item.entityId,
+								text: replyDraft,
+							}
+						: {
+								kind: "replyTweet",
+								accountId: item.accountId,
+								tweetId: item.entityId,
+								text: replyDraft,
+							},
+				),
+			});
+			setReplyDraft("");
+			setActiveReplyId(null);
+			setRefreshTick((value) => value + 1);
+		} finally {
+			setIsSendingReply(false);
 		}
 	}
 
@@ -118,9 +151,26 @@ function InboxRoute() {
 
 			<section className="stack-grid">
 				{items.map((item) => (
-					<InboxCard key={item.id} item={item} />
+					<InboxCard
+						key={item.id}
+						isReplying={activeReplyId === item.id}
+						item={item}
+						onReplyChange={setReplyDraft}
+						onReplySend={() => void sendReply(item)}
+						onReplyToggle={() => {
+							if (activeReplyId === item.id) {
+								setActiveReplyId(null);
+								setReplyDraft("");
+								return;
+							}
+							setActiveReplyId(item.id);
+							setReplyDraft("");
+						}}
+						replyDraft={activeReplyId === item.id ? replyDraft : ""}
+					/>
 				))}
 			</section>
+			{isSendingReply ? <p className="timestamp">Sending reply...</p> : null}
 		</main>
 	);
 }

@@ -14,7 +14,21 @@ function formatFollowers(value: number) {
 	return new Intl.NumberFormat("en", { notation: "compact" }).format(value);
 }
 
-export function InboxCard({ item }: { item: InboxItem }) {
+export function InboxCard({
+	item,
+	isReplying,
+	replyDraft,
+	onReplyChange,
+	onReplyToggle,
+	onReplySend,
+}: {
+	item: InboxItem;
+	isReplying: boolean;
+	replyDraft: string;
+	onReplyChange: (value: string) => void;
+	onReplyToggle: () => void;
+	onReplySend: () => void;
+}) {
 	return (
 		<article className="content-card inbox-card">
 			<div className="card-header">
@@ -62,13 +76,44 @@ export function InboxCard({ item }: { item: InboxItem }) {
 					<span>influence {item.influenceScore}</span>
 					<span>{item.needsReply ? "needs reply" : "resolved"}</span>
 				</div>
-				<Link
-					className="action-button"
-					to={item.entityKind === "dm" ? "/dms" : "/mentions"}
-				>
-					Open
-				</Link>
+				<div className="action-row">
+					<button className="nav-link" onClick={onReplyToggle} type="button">
+						{isReplying ? "Close reply" : "Reply"}
+					</button>
+					<Link
+						className="action-button"
+						to={item.entityKind === "dm" ? "/dms" : "/mentions"}
+					>
+						Open
+					</Link>
+				</div>
 			</div>
+			{isReplying ? (
+				<div className="composer-shell">
+					<textarea
+						className="composer-input"
+						onChange={(event) => onReplyChange(event.target.value)}
+						placeholder={
+							item.entityKind === "dm"
+								? `Reply to @${item.participant.handle}`
+								: `Reply to mention from @${item.participant.handle}`
+						}
+						rows={4}
+						value={replyDraft}
+					/>
+					<div className="composer-bar">
+						<span className="timestamp">Send from inbox</span>
+						<button
+							className="action-button"
+							disabled={!replyDraft.trim()}
+							onClick={onReplySend}
+							type="button"
+						>
+							Send
+						</button>
+					</div>
+				</div>
+			) : null}
 		</article>
 	);
 }
