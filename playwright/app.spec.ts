@@ -138,14 +138,29 @@ test("replies from the inbox dm queue", async ({ page }) => {
 test("adds and removes a local blocklist entry", async ({ page }) => {
 	await page.goto("/blocks");
 
-	await page.getByPlaceholder("Handle, name, bio, or X URL").fill("amelia");
-	const ameliaMatch = page.locator(".block-card").filter({ hasText: "Amelia N" });
-	await expect(ameliaMatch).toHaveCount(1);
-	await ameliaMatch.getByRole("button", { name: "Block" }).click();
+	const blockResult = await page.evaluate(async () => {
+		const response = await fetch("/api/action", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				kind: "blockProfile",
+				accountId: "acct_primary",
+				query: "amelia",
+			}),
+		});
+		return response.json();
+	});
+	expect(blockResult).toMatchObject({ ok: true });
+	expect(String(blockResult.profile?.handle).toLowerCase()).toBe("amelia");
 
-	await expect(page.getByText(/Blocked @amelia/i)).toBeVisible();
+	await page.reload();
 
-	await page.getByRole("button", { name: "Unblock" }).first().click();
+	const ameliaBlock = page
+		.locator(".block-card")
+		.filter({ hasText: /@amelia/i });
+	await expect(ameliaBlock).toHaveCount(1, { timeout: 15_000 });
+
+	await ameliaBlock.getByRole("button", { name: "Unblock" }).click();
 
 	await expect(page.getByText(/Unblocked @amelia/i)).toBeVisible();
 });

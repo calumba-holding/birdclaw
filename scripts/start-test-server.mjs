@@ -4,12 +4,13 @@ import { spawn } from "node:child_process";
 
 const cwd = process.cwd();
 const home = process.env.BIRDCLAW_HOME || path.join(cwd, ".playwright-home");
+const viteBin = path.join(cwd, "node_modules", "vite", "bin", "vite.js");
 
 rmSync(home, { recursive: true, force: true });
 
 const child = spawn(
-	process.platform === "win32" ? "pnpm.cmd" : "pnpm",
-	["exec", "vite", "dev", "--port", "3000", "--host", "127.0.0.1"],
+	process.execPath,
+	[viteBin, "dev", "--port", "3000", "--host", "127.0.0.1"],
 	{
 		cwd,
 		stdio: "inherit",
