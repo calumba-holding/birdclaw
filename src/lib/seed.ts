@@ -6,6 +6,15 @@ function isoMinutesAgo(minutes: number) {
 	return new Date(now.getTime() - minutes * 60_000).toISOString();
 }
 
+function svgImageDataUrl(label: string, hue: number) {
+	const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800"><rect width="1200" height="800" fill="hsl(${String(
+		hue,
+	)} 48% 42%)"/><rect x="56" y="56" width="1088" height="688" rx="42" fill="hsl(${String(
+		hue + 18,
+	)} 34% 18%)" opacity="0.34"/><text x="70" y="420" fill="white" font-family="Instrument Sans, sans-serif" font-size="78" font-weight="700">${label}</text></svg>`;
+	return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
 export function seedDemoData(db: Database.Database) {
 	const accountCount = db
 		.prepare("select count(*) as count from accounts")
@@ -28,10 +37,10 @@ export function seedDemoData(db: Database.Database) {
 	const insertTweet = db.prepare(`
     insert into tweets (
       id, account_id, author_profile_id, kind, text, created_at, is_replied,
-      reply_to_id, like_count, media_count, bookmarked, liked
+      reply_to_id, like_count, media_count, bookmarked, liked, entities_json, media_json, quoted_tweet_id
     ) values (
       @id, @accountId, @authorProfileId, @kind, @text, @createdAt, @isReplied,
-      @replyToId, @likeCount, @mediaCount, @bookmarked, @liked
+      @replyToId, @likeCount, @mediaCount, @bookmarked, @liked, @entitiesJson, @mediaJson, @quotedTweetId
     )
   `);
 
@@ -148,20 +157,47 @@ export function seedDemoData(db: Database.Database) {
 			mediaCount: 0,
 			bookmarked: 1,
 			liked: 1,
+			entitiesJson: JSON.stringify({
+				urls: [
+					{
+						url: "https://t.co/local",
+						expandedUrl: "https://birdclaw.dev/local-first-systems",
+						displayUrl: "birdclaw.dev/local-first-systems",
+						start: 85,
+						end: 108,
+						title: "Local-first systems",
+						description: "Design notes on durable local software.",
+					},
+				],
+			}),
+			mediaJson: "[]",
+			quotedTweetId: null,
 		},
 		{
 			id: "tweet_002",
 			accountId: "acct_primary",
 			authorProfileId: "profile_des",
 			kind: "home",
-			text: "The best product teams spend more time pruning scope than adding it.",
+			text: "@sam The best product teams spend more time pruning scope than adding it.",
 			createdAt: isoMinutesAgo(42),
 			isReplied: 1,
-			replyToId: null,
+			replyToId: "tweet_001",
 			likeCount: 382,
 			mediaCount: 0,
 			bookmarked: 0,
 			liked: 1,
+			entitiesJson: JSON.stringify({
+				mentions: [
+					{
+						username: "sam",
+						id: "profile_sam",
+						start: 0,
+						end: 4,
+					},
+				],
+			}),
+			mediaJson: "[]",
+			quotedTweetId: null,
 		},
 		{
 			id: "tweet_003",
@@ -176,6 +212,31 @@ export function seedDemoData(db: Database.Database) {
 			mediaCount: 1,
 			bookmarked: 0,
 			liked: 0,
+			entitiesJson: JSON.stringify({
+				urls: [
+					{
+						url: "https://t.co/survey",
+						expandedUrl: "https://example.com/developer-platform-pricing",
+						displayUrl: "example.com/developer-platform-pricing",
+						start: 78,
+						end: 101,
+						title: "Developer platform pricing survey",
+						description:
+							"A simple inline link preview card from tweet URL entities.",
+					},
+				],
+			}),
+			mediaJson: JSON.stringify([
+				{
+					url: svgImageDataUrl("pricing map", 194),
+					type: "image",
+					altText: "Pricing survey chart",
+					width: 1200,
+					height: 800,
+					thumbnailUrl: svgImageDataUrl("pricing map", 194),
+				},
+			]),
+			quotedTweetId: null,
 		},
 		{
 			id: "tweet_004",
@@ -190,6 +251,18 @@ export function seedDemoData(db: Database.Database) {
 			mediaCount: 0,
 			bookmarked: 0,
 			liked: 0,
+			entitiesJson: JSON.stringify({
+				mentions: [
+					{
+						username: "steipete",
+						id: "profile_me",
+						start: 0,
+						end: 9,
+					},
+				],
+			}),
+			mediaJson: "[]",
+			quotedTweetId: null,
 		},
 		{
 			id: "tweet_005",
@@ -204,6 +277,18 @@ export function seedDemoData(db: Database.Database) {
 			mediaCount: 0,
 			bookmarked: 0,
 			liked: 0,
+			entitiesJson: JSON.stringify({
+				mentions: [
+					{
+						username: "steipete",
+						id: "profile_me",
+						start: 0,
+						end: 9,
+					},
+				],
+			}),
+			mediaJson: "[]",
+			quotedTweetId: null,
 		},
 		{
 			id: "tweet_006",
@@ -218,6 +303,21 @@ export function seedDemoData(db: Database.Database) {
 			mediaCount: 0,
 			bookmarked: 1,
 			liked: 1,
+			entitiesJson: JSON.stringify({
+				urls: [
+					{
+						url: "https://t.co/quoted",
+						expandedUrl: "https://x.com/sam/status/tweet_001",
+						displayUrl: "x.com/sam/status/tweet_001",
+						start: 58,
+						end: 81,
+						title: "Quoted tweet",
+						description: "Local quoted tweet expansion",
+					},
+				],
+			}),
+			mediaJson: "[]",
+			quotedTweetId: "tweet_001",
 		},
 	];
 

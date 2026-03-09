@@ -7,12 +7,15 @@ import type {
 	DmConversationItem,
 	DmMessageItem,
 	DmQuery,
+	EmbeddedTweet,
 	ProfileRecord,
 	QueryEnvelope,
 	QueryResponse,
 	ReplyFilter,
 	TimelineItem,
 	TimelineQuery,
+	TweetEntities,
+	TweetMediaItem,
 } from "./types";
 import {
 	dmViaXurl,
@@ -41,6 +44,68 @@ function toProfile(row: Record<string, unknown>): ProfileRecord {
 		followersCount: Number(row.followers_count),
 		avatarHue: Number(row.avatar_hue),
 		createdAt: String(row.created_at),
+	};
+}
+
+function parseJsonField<T>(value: unknown, fallback: T): T {
+	if (typeof value !== "string" || value.length === 0) {
+		return fallback;
+	}
+
+	try {
+		return JSON.parse(value) as T;
+	} catch {
+		return fallback;
+	}
+}
+
+function enrichEntities(
+	entities: TweetEntities,
+	profiles: Record<string, ProfileRecord>,
+): TweetEntities {
+	const mentions = entities.mentions?.map((mention) => {
+		const profile =
+			(mention.id ? profiles[mention.id] : undefined) ??
+			Object.values(profiles).find(
+				(candidate) => candidate.handle === mention.username,
+			);
+		return profile ? { ...mention, profile } : mention;
+	});
+
+	return {
+		...entities,
+		...(mentions ? { mentions } : {}),
+	};
+}
+
+function buildEmbeddedTweet(
+	row: Record<string, unknown>,
+	prefix: string,
+): EmbeddedTweet | null {
+	if (!row[`${prefix}id`]) {
+		return null;
+	}
+
+	const author = toProfile({
+		id: row[`${prefix}profile_id`],
+		handle: row[`${prefix}handle`],
+		display_name: row[`${prefix}display_name`],
+		bio: row[`${prefix}bio`],
+		followers_count: row[`${prefix}followers_count`],
+		avatar_hue: row[`${prefix}avatar_hue`],
+		created_at: row[`${prefix}profile_created_at`],
+	});
+
+	return {
+		id: String(row[`${prefix}id`]),
+		text: String(row[`${prefix}text`] ?? ""),
+		createdAt: String(row[`${prefix}created_at`] ?? new Date(0).toISOString()),
+		author,
+		entities: enrichEntities(
+			parseJsonField<TweetEntities>(row[`${prefix}entities_json`], {}),
+			{ [author.id]: author },
+		),
+		media: parseJsonField<TweetMediaItem[]>(row[`${prefix}media_json`], []),
 	};
 }
 
@@ -153,16 +218,47 @@ export function listTimelineItems({
         t.media_count,
         t.bookmarked,
         t.liked,
+        t.entities_json,
+        t.media_json,
+        t.quoted_tweet_id,
         p.id as profile_id,
         p.handle,
         p.display_name,
         p.bio,
         p.followers_count,
         p.avatar_hue,
-        p.created_at as profile_created_at
+        p.created_at as profile_created_at,
+        rt.id as reply_id,
+        rt.text as reply_text,
+        rt.created_at as reply_created_at,
+        rt.entities_json as reply_entities_json,
+        rt.media_json as reply_media_json,
+        rp.id as reply_profile_id,
+        rp.handle as reply_handle,
+        rp.display_name as reply_display_name,
+        rp.bio as reply_bio,
+        rp.followers_count as reply_followers_count,
+        rp.avatar_hue as reply_avatar_hue,
+        rp.created_at as reply_profile_created_at,
+        qt.id as quoted_id,
+        qt.text as quoted_text,
+        qt.created_at as quoted_created_at,
+        qt.entities_json as quoted_entities_json,
+        qt.media_json as quoted_media_json,
+        qp.id as quoted_profile_id,
+        qp.handle as quoted_handle,
+        qp.display_name as quoted_display_name,
+        qp.bio as quoted_bio,
+        qp.followers_count as quoted_followers_count,
+        qp.avatar_hue as quoted_avatar_hue,
+        qp.created_at as quoted_profile_created_at
       from tweets t
       join accounts a on a.id = t.account_id
       join profiles p on p.id = t.author_profile_id
+      left join tweets rt on rt.id = t.reply_to_id
+      left join profiles rp on rp.id = rt.author_profile_id
+      left join tweets qt on qt.id = t.quoted_tweet_id
+      left join profiles qp on qp.id = qt.author_profile_id
       ${join}
       ${where}
       order by t.created_at desc
@@ -171,19 +267,8 @@ export function listTimelineItems({
 		)
 		.all(...params) as Array<Record<string, unknown>>;
 
-	return rows.map((row) => ({
-		id: String(row.id),
-		accountId: String(row.account_id),
-		accountHandle: String(row.account_handle),
-		kind: row.kind as TimelineItem["kind"],
-		text: String(row.text),
-		createdAt: String(row.created_at),
-		isReplied: Boolean(row.is_replied),
-		likeCount: Number(row.like_count),
-		mediaCount: Number(row.media_count),
-		bookmarked: Boolean(row.bookmarked),
-		liked: Boolean(row.liked),
-		author: {
+	return rows.map((row) => {
+		const author = {
 			id: String(row.profile_id),
 			handle: String(row.handle),
 			displayName: String(row.display_name),
@@ -191,8 +276,58 @@ export function listTimelineItems({
 			followersCount: Number(row.followers_count),
 			avatarHue: Number(row.avatar_hue),
 			createdAt: String(row.profile_created_at),
-		},
-	}));
+		};
+		const entities = enrichEntities(
+			parseJsonField<TweetEntities>(row.entities_json, {}),
+			{
+				[author.id]: author,
+				...(row.reply_profile_id
+					? {
+							[String(row.reply_profile_id)]: toProfile({
+								id: row.reply_profile_id,
+								handle: row.reply_handle,
+								display_name: row.reply_display_name,
+								bio: row.reply_bio,
+								followers_count: row.reply_followers_count,
+								avatar_hue: row.reply_avatar_hue,
+								created_at: row.reply_profile_created_at,
+							}),
+						}
+					: {}),
+				...(row.quoted_profile_id
+					? {
+							[String(row.quoted_profile_id)]: toProfile({
+								id: row.quoted_profile_id,
+								handle: row.quoted_handle,
+								display_name: row.quoted_display_name,
+								bio: row.quoted_bio,
+								followers_count: row.quoted_followers_count,
+								avatar_hue: row.quoted_avatar_hue,
+								created_at: row.quoted_profile_created_at,
+							}),
+						}
+					: {}),
+			},
+		);
+		return {
+			id: String(row.id),
+			accountId: String(row.account_id),
+			accountHandle: String(row.account_handle),
+			kind: row.kind as TimelineItem["kind"],
+			text: String(row.text),
+			createdAt: String(row.created_at),
+			isReplied: Boolean(row.is_replied),
+			likeCount: Number(row.like_count),
+			mediaCount: Number(row.media_count),
+			bookmarked: Boolean(row.bookmarked),
+			liked: Boolean(row.liked),
+			author,
+			entities,
+			media: parseJsonField<TweetMediaItem[]>(row.media_json, []),
+			replyToTweet: buildEmbeddedTweet(row, "reply_"),
+			quotedTweet: buildEmbeddedTweet(row, "quoted_"),
+		};
+	});
 }
 
 export function listDmConversations({

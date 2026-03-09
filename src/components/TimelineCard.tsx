@@ -1,4 +1,8 @@
 import type { TimelineItem } from "#/lib/types";
+import { EmbeddedTweetCard } from "./EmbeddedTweetCard";
+import { ProfilePreview } from "./ProfilePreview";
+import { TweetMediaGrid } from "./TweetMediaGrid";
+import { TweetRichText } from "./TweetRichText";
 
 function formatCount(value: number) {
 	return new Intl.NumberFormat("en", { notation: "compact" }).format(value);
@@ -11,6 +15,14 @@ function formatTime(value: string) {
 		month: "short",
 		day: "numeric",
 	}).format(new Date(value));
+}
+
+function getVisibleUrlCards(item: TimelineItem) {
+	const quotedUrl = item.quotedTweet ? item.quotedTweet.id : null;
+	return (item.entities.urls ?? []).filter((entry) => {
+		if (!item.quotedTweet) return true;
+		return !entry.expandedUrl.includes(quotedUrl ?? "");
+	});
 }
 
 export function TimelineCard({
@@ -35,12 +47,14 @@ export function TimelineCard({
 							.slice(0, 2)}
 					</div>
 					<div>
-						<div className="identity-row">
-							<strong>{item.author.displayName}</strong>
-							<span>@{item.author.handle}</span>
-							<span className="muted-dot" />
-							<span>{formatCount(item.author.followersCount)} followers</span>
-						</div>
+						<ProfilePreview profile={item.author}>
+							<div className="identity-row">
+								<strong>{item.author.displayName}</strong>
+								<span>@{item.author.handle}</span>
+								<span className="muted-dot" />
+								<span>{formatCount(item.author.followersCount)} followers</span>
+							</div>
+						</ProfilePreview>
 						<p className="bio-line">{item.author.bio}</p>
 					</div>
 				</div>
@@ -53,7 +67,27 @@ export function TimelineCard({
 					<span className="timestamp">{formatTime(item.createdAt)}</span>
 				</div>
 			</header>
-			<p className="body-copy">{item.text}</p>
+			<TweetRichText entities={item.entities} text={item.text} />
+			<TweetMediaGrid items={item.media} />
+			{item.replyToTweet ? (
+				<EmbeddedTweetCard item={item.replyToTweet} label="In reply to" />
+			) : null}
+			{item.quotedTweet ? (
+				<EmbeddedTweetCard item={item.quotedTweet} label="Quoted tweet" />
+			) : null}
+			{getVisibleUrlCards(item).map((entry) => (
+				<a
+					key={entry.expandedUrl}
+					className="link-preview-card"
+					href={entry.expandedUrl}
+					rel="noreferrer"
+					target="_blank"
+				>
+					<strong>{entry.title ?? entry.displayUrl}</strong>
+					<span>{entry.description ?? entry.displayUrl}</span>
+					<span className="timestamp">{entry.displayUrl}</span>
+				</a>
+			))}
 			<footer className="card-footer">
 				<div className="metric-row">
 					<span>{formatCount(item.likeCount)} likes</span>

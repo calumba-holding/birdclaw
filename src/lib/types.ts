@@ -22,6 +22,54 @@ export interface ProfileRecord {
 	createdAt: string;
 }
 
+export interface TweetMentionEntity {
+	username: string;
+	id?: string;
+	start: number;
+	end: number;
+	profile?: ProfileRecord;
+}
+
+export interface TweetUrlEntity {
+	url: string;
+	expandedUrl: string;
+	displayUrl: string;
+	start: number;
+	end: number;
+	title?: string;
+	description?: string | null;
+}
+
+export interface TweetHashtagEntity {
+	tag: string;
+	start: number;
+	end: number;
+}
+
+export interface TweetEntities {
+	mentions?: TweetMentionEntity[];
+	urls?: TweetUrlEntity[];
+	hashtags?: TweetHashtagEntity[];
+}
+
+export interface TweetMediaItem {
+	url: string;
+	type: "image" | "video" | "gif" | "unknown";
+	altText?: string;
+	width?: number;
+	height?: number;
+	thumbnailUrl?: string;
+}
+
+export interface EmbeddedTweet {
+	id: string;
+	text: string;
+	createdAt: string;
+	author: ProfileRecord;
+	entities: TweetEntities;
+	media: TweetMediaItem[];
+}
+
 export interface BlockItem {
 	accountId: string;
 	accountHandle: string;
@@ -54,6 +102,10 @@ export interface TimelineItem {
 	bookmarked: boolean;
 	liked: boolean;
 	author: ProfileRecord;
+	entities: TweetEntities;
+	media: TweetMediaItem[];
+	replyToTweet?: EmbeddedTweet | null;
+	quotedTweet?: EmbeddedTweet | null;
 }
 
 export interface DmMessageItem {

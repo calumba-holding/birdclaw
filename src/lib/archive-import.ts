@@ -122,6 +122,95 @@ function getTweetMediaCount(tweet: Record<string, unknown>) {
 	return Math.max(entitiesMedia.length, extendedMedia.length);
 }
 
+function extractTweetEntities(tweet: Record<string, unknown>) {
+	const entities = asRecord(tweet.entities);
+	const urls = asArray<Record<string, unknown>>(entities?.urls)
+		.map((entry) => ({
+			url: String(entry.url ?? ""),
+			expandedUrl: String(
+				entry.expanded_url ?? entry.expandedUrl ?? entry.url ?? "",
+			),
+			displayUrl: String(
+				entry.display_url ??
+					entry.displayUrl ??
+					entry.expanded_url ??
+					entry.url ??
+					"",
+			),
+			start: Number(asArray<number>(entry.indices)[0] ?? 0),
+			end: Number(asArray<number>(entry.indices)[1] ?? 0),
+			title: typeof entry.title === "string" ? entry.title : undefined,
+			description:
+				typeof entry.description === "string" ? entry.description : null,
+		}))
+		.filter((entry) => entry.url.length > 0 || entry.expandedUrl.length > 0);
+	const mentions = asArray<Record<string, unknown>>(entities?.user_mentions)
+		.map((entry) => ({
+			username: String(entry.screen_name ?? ""),
+			id: String(entry.id_str ?? entry.id ?? ""),
+			start: Number(asArray<number>(entry.indices)[0] ?? 0),
+			end: Number(asArray<number>(entry.indices)[1] ?? 0),
+		}))
+		.filter((entry) => entry.username.length > 0);
+	const hashtags = asArray<Record<string, unknown>>(entities?.hashtags)
+		.map((entry) => ({
+			tag: String(entry.text ?? ""),
+			start: Number(asArray<number>(entry.indices)[0] ?? 0),
+			end: Number(asArray<number>(entry.indices)[1] ?? 0),
+		}))
+		.filter((entry) => entry.tag.length > 0);
+
+	return {
+		...(urls.length > 0 ? { urls } : {}),
+		...(mentions.length > 0 ? { mentions } : {}),
+		...(hashtags.length > 0 ? { hashtags } : {}),
+	};
+}
+
+function extractTweetMedia(tweet: Record<string, unknown>) {
+	const extendedEntities = asRecord(tweet.extended_entities);
+	const entities = asRecord(tweet.entities);
+	const sourceMedia = [
+		...asArray<Record<string, unknown>>(extendedEntities?.media),
+		...asArray<Record<string, unknown>>(entities?.media),
+	];
+	const seen = new Set<string>();
+
+	return sourceMedia
+		.map((entry) => {
+			const url = String(
+				entry.media_url_https ?? entry.media_url ?? entry.url ?? "",
+			);
+			const thumbnailUrl = String(
+				entry.media_url_https ?? entry.media_url ?? url,
+			);
+			const type = String(entry.type ?? "image");
+			return {
+				url,
+				type:
+					type === "photo"
+						? "image"
+						: type === "video" || type === "animated_gif"
+							? type === "animated_gif"
+								? "gif"
+								: "video"
+							: "unknown",
+				altText:
+					typeof entry.ext_alt_text === "string"
+						? entry.ext_alt_text
+						: undefined,
+				thumbnailUrl,
+			};
+		})
+		.filter((entry) => {
+			if (!entry.url || seen.has(entry.url)) {
+				return false;
+			}
+			seen.add(entry.url);
+			return true;
+		});
+}
+
 function buildAccountPayload(
 	accountRecord: Record<string, unknown> | null,
 	profileRecord: Record<string, unknown> | null,
@@ -220,6 +309,9 @@ export async function importArchive(
 		replyToId: string | null;
 		likeCount: number;
 		mediaCount: number;
+		entitiesJson: string;
+		mediaJson: string;
+		quotedTweetId: string | null;
 	}> = [];
 
 	for (const entry of tweetEntries) {
@@ -260,6 +352,11 @@ export async function importArchive(
 					: null,
 				likeCount: toInt(tweet.favorite_count),
 				mediaCount: getTweetMediaCount(tweet),
+				entitiesJson: JSON.stringify(extractTweetEntities(tweet)),
+				mediaJson: JSON.stringify(extractTweetMedia(tweet)),
+				quotedTweetId: tweet.quoted_status_id_str
+					? String(tweet.quoted_status_id_str)
+					: null,
 			});
 		}
 	}
@@ -278,6 +375,9 @@ export async function importArchive(
 				replyToId: null,
 				likeCount: 0,
 				mediaCount: 0,
+				entitiesJson: "{}",
+				mediaJson: "[]",
+				quotedTweetId: null,
 			});
 		}
 	}
@@ -516,8 +616,8 @@ export async function importArchive(
 	const insertTweet = db.prepare(`
     insert into tweets (
       id, account_id, author_profile_id, kind, text, created_at, is_replied,
-      reply_to_id, like_count, media_count, bookmarked, liked
-    ) values (?, ?, ?, 'home', ?, ?, ?, ?, ?, ?, 0, 0)
+      reply_to_id, like_count, media_count, bookmarked, liked, entities_json, media_json, quoted_tweet_id
+    ) values (?, ?, ?, 'home', ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
   `);
 	const insertTweetFts = db.prepare(
 		"insert into tweets_fts (tweet_id, text) values (?, ?)",
@@ -568,6 +668,9 @@ export async function importArchive(
 				tweet.replyToId,
 				tweet.likeCount,
 				tweet.mediaCount,
+				tweet.entitiesJson,
+				tweet.mediaJson,
+				tweet.quotedTweetId,
 			);
 			insertTweetFts.run(tweet.id, tweet.text);
 		}
@@ -625,6 +728,8 @@ export const __test__ = {
 	asArray,
 	toInt,
 	getTweetMediaCount,
+	extractTweetEntities,
+	extractTweetMedia,
 	buildAccountPayload,
 	inferProfileFromDirectory,
 };
