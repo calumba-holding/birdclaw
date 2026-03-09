@@ -1,9 +1,6 @@
-import {
-	formatCompactNumber,
-	formatShortTimestamp,
-	getInitials,
-} from "#/lib/present";
+import { formatCompactNumber, formatShortTimestamp } from "#/lib/present";
 import type { DmConversationItem, DmMessageItem } from "#/lib/types";
+import { AvatarChip } from "./AvatarChip";
 
 function clampBio(value: string, limit = 120) {
 	if (value.length <= limit) return value;
@@ -72,14 +69,10 @@ export function DmWorkspace({
 							onClick={() => onSelectConversation(conversation.id)}
 							type="button"
 						>
-							<div
-								className="avatar-chip"
-								style={{
-									backgroundColor: `hsl(${conversation.participant.avatarHue} 72% 50%)`,
-								}}
-							>
-								{getInitials(conversation.participant.displayName)}
-							</div>
+							<AvatarChip
+								hue={conversation.participant.avatarHue}
+								name={conversation.participant.displayName}
+							/>
 							<div className="dm-list-copy">
 								<div className="identity-row">
 									<strong>{conversation.participant.displayName}</strong>
@@ -169,14 +162,11 @@ export function DmWorkspace({
 				{participant ? (
 					<>
 						<p className="eyebrow">sender context</p>
-						<div
-							className="avatar-chip avatar-chip-large"
-							style={{
-								backgroundColor: `hsl(${participant.avatarHue} 72% 50%)`,
-							}}
-						>
-							{getInitials(participant.displayName)}
-						</div>
+						<AvatarChip
+							hue={participant.avatarHue}
+							name={participant.displayName}
+							size="large"
+						/>
 						<h3>{participant.displayName}</h3>
 						<p className="context-handle">@{participant.handle}</p>
 						<p className="context-bio">{participant.bio}</p>

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
-import { formatCompactNumber, getInitials } from "#/lib/present";
+import { formatCompactNumber } from "#/lib/present";
 import type { ProfileRecord } from "#/lib/types";
+import { AvatarChip } from "./AvatarChip";
 
 export function ProfilePreview({
 	profile,
@@ -23,12 +24,7 @@ export function ProfilePreview({
 			</a>
 			<span className="profile-preview-card">
 				<span className="profile-preview-header">
-					<span
-						className="avatar-chip"
-						style={{ backgroundColor: `hsl(${profile.avatarHue} 72% 50%)` }}
-					>
-						{getInitials(profile.displayName)}
-					</span>
+					<AvatarChip hue={profile.avatarHue} name={profile.displayName} />
 					<span>
 						<strong>{profile.displayName}</strong>
 						<span className="profile-preview-handle">@{profile.handle}</span>

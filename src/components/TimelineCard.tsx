@@ -1,9 +1,6 @@
-import {
-	formatCompactNumber,
-	formatShortTimestamp,
-	getInitials,
-} from "#/lib/present";
+import { formatCompactNumber, formatShortTimestamp } from "#/lib/present";
 import type { TimelineItem } from "#/lib/types";
+import { AvatarChip } from "./AvatarChip";
 import { EmbeddedTweetCard } from "./EmbeddedTweetCard";
 import { ProfilePreview } from "./ProfilePreview";
 import { TweetMediaGrid } from "./TweetMediaGrid";
@@ -28,12 +25,10 @@ export function TimelineCard({
 		<article className="content-card">
 			<header className="card-header">
 				<div className="identity-block">
-					<div
-						className="avatar-chip"
-						style={{ backgroundColor: `hsl(${item.author.avatarHue} 72% 50%)` }}
-					>
-						{getInitials(item.author.displayName)}
-					</div>
+					<AvatarChip
+						hue={item.author.avatarHue}
+						name={item.author.displayName}
+					/>
 					<div>
 						<ProfilePreview profile={item.author}>
 							<div className="identity-row">

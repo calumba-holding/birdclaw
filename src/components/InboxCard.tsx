@@ -1,10 +1,7 @@
 import { Link } from "@tanstack/react-router";
-import {
-	formatCompactNumber,
-	formatShortTimestamp,
-	getInitials,
-} from "#/lib/present";
+import { formatCompactNumber, formatShortTimestamp } from "#/lib/present";
 import type { InboxItem } from "#/lib/types";
+import { AvatarChip } from "./AvatarChip";
 
 export function InboxCard({
 	item,
@@ -25,14 +22,10 @@ export function InboxCard({
 		<article className="content-card inbox-card">
 			<div className="card-header">
 				<div className="identity-block">
-					<div
-						className="avatar-chip"
-						style={{
-							backgroundColor: `hsl(${item.participant.avatarHue} 72% 50%)`,
-						}}
-					>
-						{getInitials(item.participant.displayName)}
-					</div>
+					<AvatarChip
+						hue={item.participant.avatarHue}
+						name={item.participant.displayName}
+					/>
 					<div>
 						<div className="identity-row">
 							<strong>{item.participant.displayName}</strong>

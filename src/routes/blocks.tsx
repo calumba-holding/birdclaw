@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { formatCompactNumber, getInitials } from "#/lib/present";
+import { AvatarChip } from "#/components/AvatarChip";
+import { formatCompactNumber } from "#/lib/present";
 import type {
 	BlockItem,
 	BlockListResponse,
@@ -171,16 +171,10 @@ function BlocksRoute() {
 						<article className="content-card block-card" key={match.profile.id}>
 							<div className="card-header">
 								<div className="identity-block">
-									<div
-										className="avatar-chip"
-										style={
-											{
-												"--avatar-hue": match.profile.avatarHue,
-											} as CSSProperties
-										}
-									>
-										{getInitials(match.profile.displayName)}
-									</div>
+									<AvatarChip
+										hue={match.profile.avatarHue}
+										name={match.profile.displayName}
+									/>
 									<div>
 										<strong>{match.profile.displayName}</strong>
 										<div className="meta-row">
@@ -220,16 +214,10 @@ function BlocksRoute() {
 					>
 						<div className="card-header">
 							<div className="identity-block">
-								<div
-									className="avatar-chip"
-									style={
-										{
-											"--avatar-hue": item.profile.avatarHue,
-										} as CSSProperties
-									}
-								>
-									{getInitials(item.profile.displayName)}
-								</div>
+								<AvatarChip
+									hue={item.profile.avatarHue}
+									name={item.profile.displayName}
+								/>
 								<div>
 									<strong>{item.profile.displayName}</strong>
 									<div className="meta-row">
