@@ -19,7 +19,7 @@ export default defineConfig({
 		},
 	],
 	webServer: {
-		command: "fnm exec --using 24.12.0 node ./scripts/start-test-server.mjs",
+		command: "node ./scripts/start-test-server.mjs",
 		url: "http://127.0.0.1:3000",
 		reuseExistingServer: false,
 		timeout: 120000,
