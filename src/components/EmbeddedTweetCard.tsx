@@ -1,16 +1,8 @@
+import { formatShortTimestamp } from "#/lib/present";
 import type { EmbeddedTweet } from "#/lib/types";
 import { ProfilePreview } from "./ProfilePreview";
 import { TweetMediaGrid } from "./TweetMediaGrid";
 import { TweetRichText } from "./TweetRichText";
-
-function formatTime(value: string) {
-	return new Intl.DateTimeFormat("en", {
-		hour: "numeric",
-		minute: "2-digit",
-		month: "short",
-		day: "numeric",
-	}).format(new Date(value));
-}
 
 export function EmbeddedTweetCard({
 	item,
@@ -29,7 +21,9 @@ export function EmbeddedTweetCard({
 						<span>@{item.author.handle}</span>
 					</span>
 				</ProfilePreview>
-				<span className="timestamp">{formatTime(item.createdAt)}</span>
+				<span className="timestamp">
+					{formatShortTimestamp(item.createdAt)}
+				</span>
 			</header>
 			<TweetRichText
 				className="embedded-tweet-copy"

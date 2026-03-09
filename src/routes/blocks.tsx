@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
+import { formatCompactNumber, getInitials } from "#/lib/present";
 import type {
 	BlockItem,
 	BlockListResponse,
@@ -11,10 +12,6 @@ import type {
 export const Route = createFileRoute("/blocks")({
 	component: BlocksRoute,
 });
-
-function formatFollowers(value: number) {
-	return new Intl.NumberFormat("en", { notation: "compact" }).format(value);
-}
 
 function BlocksRoute() {
 	const [meta, setMeta] = useState<QueryEnvelope | null>(null);
@@ -182,11 +179,7 @@ function BlocksRoute() {
 											} as CSSProperties
 										}
 									>
-										{match.profile.displayName
-											.split(" ")
-											.map((part) => part[0] ?? "")
-											.join("")
-											.slice(0, 2)}
+										{getInitials(match.profile.displayName)}
 									</div>
 									<div>
 										<strong>{match.profile.displayName}</strong>
@@ -194,7 +187,7 @@ function BlocksRoute() {
 											<span>@{match.profile.handle}</span>
 											<span className="muted-dot" />
 											<span>
-												{formatFollowers(match.profile.followersCount)}{" "}
+												{formatCompactNumber(match.profile.followersCount)}{" "}
 												followers
 											</span>
 										</div>
@@ -235,11 +228,7 @@ function BlocksRoute() {
 										} as CSSProperties
 									}
 								>
-									{item.profile.displayName
-										.split(" ")
-										.map((part) => part[0] ?? "")
-										.join("")
-										.slice(0, 2)}
+									{getInitials(item.profile.displayName)}
 								</div>
 								<div>
 									<strong>{item.profile.displayName}</strong>
@@ -249,7 +238,8 @@ function BlocksRoute() {
 										<span>{item.accountHandle}</span>
 										<span className="muted-dot" />
 										<span>
-											{formatFollowers(item.profile.followersCount)} followers
+											{formatCompactNumber(item.profile.followersCount)}{" "}
+											followers
 										</span>
 									</div>
 								</div>

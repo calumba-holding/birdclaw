@@ -1,25 +1,9 @@
+import {
+	formatCompactNumber,
+	formatShortTimestamp,
+	getInitials,
+} from "#/lib/present";
 import type { DmConversationItem, DmMessageItem } from "#/lib/types";
-
-function formatFollowers(value: number) {
-	return new Intl.NumberFormat("en", { notation: "compact" }).format(value);
-}
-
-function formatTime(value: string) {
-	return new Intl.DateTimeFormat("en", {
-		hour: "numeric",
-		minute: "2-digit",
-		month: "short",
-		day: "numeric",
-	}).format(new Date(value));
-}
-
-function initials(name: string) {
-	return name
-		.split(" ")
-		.map((part) => part[0] ?? "")
-		.join("")
-		.slice(0, 2);
-}
 
 function clampBio(value: string, limit = 120) {
 	if (value.length <= limit) return value;
@@ -37,7 +21,7 @@ function MessageBubble({ message }: { message: DmMessageItem }) {
 		>
 			<div className="message-meta">
 				<span>{message.sender.displayName}</span>
-				<span>{formatTime(message.createdAt)}</span>
+				<span>{formatShortTimestamp(message.createdAt)}</span>
 			</div>
 			<div
 				className={
@@ -71,7 +55,7 @@ export function DmWorkspace({
 }) {
 	const participant = selectedConversation?.participant ?? null;
 	const heroLabel = participant
-		? `${formatFollowers(participant.followersCount)} followers · score ${selectedConversation?.influenceScore ?? 0} · ${selectedConversation?.influenceLabel}`
+		? `${formatCompactNumber(participant.followersCount)} followers · score ${selectedConversation?.influenceScore ?? 0} · ${selectedConversation?.influenceLabel}`
 		: "No conversation selected";
 
 	return (
@@ -94,7 +78,7 @@ export function DmWorkspace({
 									backgroundColor: `hsl(${conversation.participant.avatarHue} 72% 50%)`,
 								}}
 							>
-								{initials(conversation.participant.displayName)}
+								{getInitials(conversation.participant.displayName)}
 							</div>
 							<div className="dm-list-copy">
 								<div className="identity-row">
@@ -120,7 +104,7 @@ export function DmWorkspace({
 									{conversation.influenceScore} · {conversation.influenceLabel}
 								</span>
 								<span className="timestamp">
-									{formatTime(conversation.lastMessageAt)}
+									{formatShortTimestamp(conversation.lastMessageAt)}
 								</span>
 							</div>
 						</button>
@@ -191,7 +175,7 @@ export function DmWorkspace({
 								backgroundColor: `hsl(${participant.avatarHue} 72% 50%)`,
 							}}
 						>
-							{initials(participant.displayName)}
+							{getInitials(participant.displayName)}
 						</div>
 						<h3>{participant.displayName}</h3>
 						<p className="context-handle">@{participant.handle}</p>
@@ -199,7 +183,7 @@ export function DmWorkspace({
 						<dl className="context-stats">
 							<div>
 								<dt>Followers</dt>
-								<dd>{formatFollowers(participant.followersCount)}</dd>
+								<dd>{formatCompactNumber(participant.followersCount)}</dd>
 							</div>
 							<div>
 								<dt>Influence</dt>
@@ -217,7 +201,7 @@ export function DmWorkspace({
 							<div>
 								<dt>Last message</dt>
 								<dd>
-									{formatTime(
+									{formatShortTimestamp(
 										selectedConversation?.lastMessageAt ??
 											participant.createdAt,
 									)}

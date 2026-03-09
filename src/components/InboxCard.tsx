@@ -1,18 +1,10 @@
 import { Link } from "@tanstack/react-router";
+import {
+	formatCompactNumber,
+	formatShortTimestamp,
+	getInitials,
+} from "#/lib/present";
 import type { InboxItem } from "#/lib/types";
-
-function formatTime(value: string) {
-	return new Intl.DateTimeFormat("en", {
-		hour: "numeric",
-		minute: "2-digit",
-		month: "short",
-		day: "numeric",
-	}).format(new Date(value));
-}
-
-function formatFollowers(value: number) {
-	return new Intl.NumberFormat("en", { notation: "compact" }).format(value);
-}
 
 export function InboxCard({
 	item,
@@ -39,11 +31,7 @@ export function InboxCard({
 							backgroundColor: `hsl(${item.participant.avatarHue} 72% 50%)`,
 						}}
 					>
-						{item.participant.displayName
-							.split(" ")
-							.map((part) => part[0] ?? "")
-							.join("")
-							.slice(0, 2)}
+						{getInitials(item.participant.displayName)}
 					</div>
 					<div>
 						<div className="identity-row">
@@ -51,7 +39,7 @@ export function InboxCard({
 							<span>@{item.participant.handle}</span>
 							<span className="muted-dot" />
 							<span>
-								{formatFollowers(item.participant.followersCount)} followers
+								{formatCompactNumber(item.participant.followersCount)} followers
 							</span>
 						</div>
 						<p className="bio-line">{item.participant.bio}</p>
@@ -60,7 +48,9 @@ export function InboxCard({
 				<div className="meta-stack">
 					<span className="pill pill-soft">{item.entityKind}</span>
 					<span className="pill pill-alert">score {item.score}</span>
-					<span className="timestamp">{formatTime(item.createdAt)}</span>
+					<span className="timestamp">
+						{formatShortTimestamp(item.createdAt)}
+					</span>
 				</div>
 			</div>
 			<p className="eyebrow">ai triage</p>

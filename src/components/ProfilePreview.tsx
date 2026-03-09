@@ -1,9 +1,6 @@
 import type { ReactNode } from "react";
+import { formatCompactNumber, getInitials } from "#/lib/present";
 import type { ProfileRecord } from "#/lib/types";
-
-function formatFollowers(value: number) {
-	return new Intl.NumberFormat("en", { notation: "compact" }).format(value);
-}
 
 export function ProfilePreview({
 	profile,
@@ -30,11 +27,7 @@ export function ProfilePreview({
 						className="avatar-chip"
 						style={{ backgroundColor: `hsl(${profile.avatarHue} 72% 50%)` }}
 					>
-						{profile.displayName
-							.split(" ")
-							.map((part) => part[0] ?? "")
-							.join("")
-							.slice(0, 2)}
+						{getInitials(profile.displayName)}
 					</span>
 					<span>
 						<strong>{profile.displayName}</strong>
@@ -43,7 +36,7 @@ export function ProfilePreview({
 				</span>
 				<span className="profile-preview-bio">{profile.bio}</span>
 				<span className="profile-preview-meta">
-					{formatFollowers(profile.followersCount)} followers
+					{formatCompactNumber(profile.followersCount)} followers
 				</span>
 			</span>
 		</span>

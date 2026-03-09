@@ -1,21 +1,13 @@
+import {
+	formatCompactNumber,
+	formatShortTimestamp,
+	getInitials,
+} from "#/lib/present";
 import type { TimelineItem } from "#/lib/types";
 import { EmbeddedTweetCard } from "./EmbeddedTweetCard";
 import { ProfilePreview } from "./ProfilePreview";
 import { TweetMediaGrid } from "./TweetMediaGrid";
 import { TweetRichText } from "./TweetRichText";
-
-function formatCount(value: number) {
-	return new Intl.NumberFormat("en", { notation: "compact" }).format(value);
-}
-
-function formatTime(value: string) {
-	return new Intl.DateTimeFormat("en", {
-		hour: "numeric",
-		minute: "2-digit",
-		month: "short",
-		day: "numeric",
-	}).format(new Date(value));
-}
 
 function getVisibleUrlCards(item: TimelineItem) {
 	const quotedUrl = item.quotedTweet ? item.quotedTweet.id : null;
@@ -40,11 +32,7 @@ export function TimelineCard({
 						className="avatar-chip"
 						style={{ backgroundColor: `hsl(${item.author.avatarHue} 72% 50%)` }}
 					>
-						{item.author.displayName
-							.split(" ")
-							.map((part) => part[0])
-							.join("")
-							.slice(0, 2)}
+						{getInitials(item.author.displayName)}
 					</div>
 					<div>
 						<ProfilePreview profile={item.author}>
@@ -52,7 +40,9 @@ export function TimelineCard({
 								<strong>{item.author.displayName}</strong>
 								<span>@{item.author.handle}</span>
 								<span className="muted-dot" />
-								<span>{formatCount(item.author.followersCount)} followers</span>
+								<span>
+									{formatCompactNumber(item.author.followersCount)} followers
+								</span>
 							</div>
 						</ProfilePreview>
 						<p className="bio-line">{item.author.bio}</p>
@@ -64,7 +54,9 @@ export function TimelineCard({
 					>
 						{item.isReplied ? "replied" : "needs reply"}
 					</span>
-					<span className="timestamp">{formatTime(item.createdAt)}</span>
+					<span className="timestamp">
+						{formatShortTimestamp(item.createdAt)}
+					</span>
 				</div>
 			</header>
 			<TweetRichText entities={item.entities} text={item.text} />
@@ -90,7 +82,7 @@ export function TimelineCard({
 			))}
 			<footer className="card-footer">
 				<div className="metric-row">
-					<span>{formatCount(item.likeCount)} likes</span>
+					<span>{formatCompactNumber(item.likeCount)} likes</span>
 					<span>{item.mediaCount} media</span>
 					<span>{item.bookmarked ? "bookmarked" : "not bookmarked"}</span>
 					<span>{item.accountHandle}</span>
