@@ -162,6 +162,26 @@ describe("birdclaw queries", () => {
 		expect(items[0]?.accountId).toBe("acct_studio");
 	});
 
+	it("hydrates rich tweet entities, media, reply context, and quote context", () => {
+		setupTempHome();
+
+		const items = listTimelineItems({
+			resource: "home",
+			limit: 10,
+		});
+		const replyItem = items.find((item) => item.id === "tweet_002");
+		const mediaItem = items.find((item) => item.id === "tweet_003");
+		const quotedItem = items.find((item) => item.id === "tweet_006");
+
+		expect(replyItem?.replyToTweet?.id).toBe("tweet_001");
+		expect(mediaItem?.media[0]?.altText).toBe("Pricing survey chart");
+		expect(mediaItem?.entities.urls?.[0]?.title).toBe(
+			"Developer platform pricing survey",
+		);
+		expect(quotedItem?.quotedTweet?.id).toBe("tweet_001");
+		expect(quotedItem?.quotedTweet?.text).toContain("local-first");
+	});
+
 	it("builds a mixed inbox with ranked mentions and dms", () => {
 		setupTempHome();
 
@@ -212,6 +232,18 @@ describe("birdclaw queries", () => {
 		expect(result.selectedConversation?.messages).toHaveLength(2);
 	});
 
+	it("returns a null selected conversation when dm filters empty the result set", () => {
+		setupTempHome();
+
+		const result = queryResource("dms", {
+			participant: "nobody",
+		});
+
+		expect(result.items).toEqual([]);
+		expect(result.selectedConversation).toBeNull();
+		expect(getConversationThread("missing")).toBeNull();
+	});
+
 	it("creates posts locally and records outbound actions", async () => {
 		setupTempHome();
 
@@ -235,6 +267,19 @@ describe("birdclaw queries", () => {
 			body: "Fresh local-first post",
 		});
 		expect(mocks.postViaXurl).toHaveBeenCalledWith("Fresh local-first post");
+	});
+
+	it("rejects tweet writes when the local author profile is unavailable", async () => {
+		setupTempHome();
+		const db = getNativeDb();
+		db.prepare("delete from profiles where id = ?").run("profile_me");
+
+		await expect(createPost("acct_primary", "hello")).rejects.toThrow(
+			"No local author profile for account",
+		);
+		await expect(
+			createTweetReply("acct_primary", "tweet_004", "hello"),
+		).rejects.toThrow("No local author profile for account");
 	});
 
 	it("creates tweet replies and flips the original item to replied", async () => {
@@ -296,5 +341,13 @@ describe("birdclaw queries", () => {
 			unread_count: 0,
 		});
 		expect(mocks.dmViaXurl).toHaveBeenCalledWith("amelia", "Send it over.");
+	});
+
+	it("rejects dm replies for missing conversations", async () => {
+		setupTempHome();
+
+		await expect(createDmReply("missing", "hello")).rejects.toThrow(
+			"Conversation not found",
+		);
 	});
 });

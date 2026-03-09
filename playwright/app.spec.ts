@@ -48,10 +48,45 @@ test("filters the home timeline by reply state", async ({ page }) => {
 
 	await page.getByRole("button", { name: /^replied$/ }).click();
 	await expect(cards).toHaveCount(1);
-	await expect(cards.first()).toContainText("The best product teams");
+	await expect(cards.first()).toContainText("best product teams");
 
 	await page.getByRole("button", { name: /^unreplied$/ }).click();
 	await expect(cards).toHaveCount(3);
+});
+
+test("expands timeline cards with media, quote context, and profile hover", async ({
+	page,
+}) => {
+	await page.goto("/");
+
+	const surveyCard = page.locator(".content-card").filter({
+		hasText: "New developer-platform pricing survey",
+	});
+	await expect(surveyCard.getByAltText("Pricing survey chart")).toBeVisible();
+	await expect(
+		surveyCard.getByRole("link", { name: "example.com/developer-platform-pricing" }),
+	).toBeVisible();
+	await surveyCard.locator(".profile-preview-trigger").first().hover();
+	await expect(
+		surveyCard
+			.locator(".profile-preview-card .profile-preview-bio")
+			.filter({
+				hasText:
+					"Reports on infrastructure, AI policy, and the business of software.",
+			}),
+	).toBeVisible();
+
+	const quoteCard = page.locator(".content-card").filter({
+		hasText: "Agents need retrieval surfaces",
+	});
+	await expect(
+		quoteCard.locator(".embedded-tweet-label", { hasText: "Quoted tweet" }),
+	).toBeVisible();
+	await expect(
+		quoteCard.getByText(
+			"We need more software that defaults to local-first, legible state, and repairable failure modes.",
+		),
+	).toBeVisible();
 });
 
 test("replies to an unreplied mention and clears it from the queue", async ({

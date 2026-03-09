@@ -39,14 +39,44 @@ function makeArchive() {
     "tweet": {
       "id_str": "100",
       "created_at": "Tue Jun 03 19:32:20 +0000 2025",
-      "full_text": "@sam archive-first still wins",
+      "full_text": "@sam archive-first still wins https://t.co/local #birdclaw",
       "favorite_count": "12",
       "in_reply_to_status_id_str": "99",
+      "quoted_status_id_str": "101",
       "in_reply_to_user_id_str": "42",
       "in_reply_to_screen_name": "sam",
       "entities": {
         "user_mentions": [
-          { "id_str": "42", "screen_name": "sam", "name": "Sam Altman" }
+          { "id_str": "42", "screen_name": "sam", "name": "Sam Altman", "indices": [0, 4] }
+        ],
+        "urls": [
+          {
+            "url": "https://t.co/local",
+            "expanded_url": "https://birdclaw.dev/archive",
+            "display_url": "birdclaw.dev/archive",
+            "indices": [30, 48]
+          }
+        ],
+        "hashtags": [
+          { "text": "birdclaw", "indices": [49, 58] }
+        ],
+        "media": [
+          {
+            "media_url_https": "https://img.example.com/archive.png",
+            "url": "https://t.co/media",
+            "type": "photo",
+            "ext_alt_text": "Archive chart"
+          }
+        ]
+      },
+      "extended_entities": {
+        "media": [
+          {
+            "media_url_https": "https://img.example.com/archive.png",
+            "url": "https://t.co/media",
+            "type": "photo",
+            "ext_alt_text": "Archive chart"
+          }
         ]
       }
     }
@@ -224,6 +254,7 @@ describe("archive import", () => {
 		const envelope = await getQueryEnvelope();
 		const tweets = listTimelineItems({ resource: "home", limit: 10 });
 		const dms = listDmConversations({ limit: 10 });
+		const archivedTweet = tweets.find((item) => item.id === "100");
 		const dmMessageCount = (
 			db.prepare("select count(*) as count from dm_messages").get() as {
 				count: number;
@@ -236,11 +267,19 @@ describe("archive import", () => {
 		expect(envelope.stats.dms).toBe(1);
 		expect(tweets.map((item) => item.text)).toEqual([
 			"Longer archive note",
-			"@sam archive-first still wins",
+			"@sam archive-first still wins https://t.co/local #birdclaw",
 		]);
 		expect(dms).toHaveLength(1);
 		expect(dms[0]?.participant.handle).toBe("sam");
 		expect(dmMessageCount).toBe(2);
+		expect(archivedTweet?.entities.mentions?.[0]?.username).toBe("sam");
+		expect(archivedTweet?.entities.urls?.[0]?.expandedUrl).toBe(
+			"https://birdclaw.dev/archive",
+		);
+		expect(archivedTweet?.entities.hashtags?.[0]?.tag).toBe("birdclaw");
+		expect(archivedTweet?.media[0]?.altText).toBe("Archive chart");
+		expect(archivedTweet?.quotedTweet?.id).toBe("101");
+		expect(archivedTweet?.quotedTweet?.text).toBe("Longer archive note");
 	}, 30000);
 
 	it("covers parsing helpers and fallback normalizers", () => {
@@ -277,6 +316,125 @@ describe("archive import", () => {
 			handle: "id42",
 			displayName: "id42",
 		});
+		expect(
+			__test__.extractTweetEntities({
+				entities: {
+					urls: [
+						{
+							url: "https://t.co/demo",
+							expanded_url: "https://example.com/demo",
+							display_url: "example.com/demo",
+							indices: [12, 29],
+							title: "Demo",
+							description: "Preview",
+						},
+					],
+					user_mentions: [
+						{
+							screen_name: "sam",
+							id_str: "42",
+							indices: [0, 4],
+						},
+					],
+					hashtags: [
+						{
+							text: "birdclaw",
+							indices: [30, 39],
+						},
+					],
+				},
+			}),
+		).toEqual({
+			urls: [
+				{
+					url: "https://t.co/demo",
+					expandedUrl: "https://example.com/demo",
+					displayUrl: "example.com/demo",
+					start: 12,
+					end: 29,
+					title: "Demo",
+					description: "Preview",
+				},
+			],
+			mentions: [
+				{
+					username: "sam",
+					id: "42",
+					start: 0,
+					end: 4,
+				},
+			],
+			hashtags: [
+				{
+					tag: "birdclaw",
+					start: 30,
+					end: 39,
+				},
+			],
+		});
+		expect(
+			__test__.extractTweetMedia({
+				extended_entities: {
+					media: [
+						{
+							media_url_https: "https://example.com/one.jpg",
+							url: "https://t.co/one",
+							type: "photo",
+							ext_alt_text: "One",
+						},
+						{
+							media_url_https: "https://example.com/two.mp4",
+							url: "https://t.co/two",
+							type: "video",
+						},
+					],
+				},
+				entities: {
+					media: [
+						{
+							media_url_https: "https://example.com/one.jpg",
+							url: "https://t.co/one",
+							type: "photo",
+						},
+						{
+							media_url: "https://example.com/three.gif",
+							url: "https://t.co/three",
+							type: "animated_gif",
+						},
+						{
+							media_url: "https://example.com/four.bin",
+							url: "https://t.co/four",
+							type: "mystery",
+						},
+					],
+				},
+			}),
+		).toEqual([
+			{
+				url: "https://example.com/one.jpg",
+				type: "image",
+				altText: "One",
+				thumbnailUrl: "https://example.com/one.jpg",
+			},
+			{
+				url: "https://example.com/two.mp4",
+				type: "video",
+				altText: undefined,
+				thumbnailUrl: "https://example.com/two.mp4",
+			},
+			{
+				url: "https://example.com/three.gif",
+				type: "gif",
+				altText: undefined,
+				thumbnailUrl: "https://example.com/three.gif",
+			},
+			{
+				url: "https://example.com/four.bin",
+				type: "unknown",
+				altText: undefined,
+				thumbnailUrl: "https://example.com/four.bin",
+			},
+		]);
 	});
 
 	it("throws when account.js is missing", async () => {
