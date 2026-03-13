@@ -46,7 +46,7 @@ async function runBirdCommand(args: string[]) {
 	return execFileAsync(birdCommand, args);
 }
 
-async function readBirdStatus(query: string) {
+export async function readBirdStatusViaBird(query: string) {
 	try {
 		const { stdout } = await runBirdCommand(["status", query, "--json"]);
 		const payload = JSON.parse(stdout) as Record<string, unknown>;
@@ -82,7 +82,7 @@ async function runVerifiedBirdMutation({
 		};
 	}
 
-	const status = await readBirdStatus(query);
+	const status = await readBirdStatusViaBird(query);
 	if (!status || typeof status[verifyField] !== "boolean") {
 		return {
 			ok: false,

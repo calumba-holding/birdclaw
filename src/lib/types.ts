@@ -162,6 +162,15 @@ export interface TransportStatus {
 	rawStatus?: string;
 }
 
+export type ModerationAction = "block" | "unblock" | "mute" | "unmute";
+export type ModerationTransportKind = "bird" | "xurl";
+
+export interface ModerationActionTransportResult {
+	ok: boolean;
+	output: string;
+	transport: ModerationTransportKind;
+}
+
 export interface ArchiveCandidate {
 	path: string;
 	name: string;

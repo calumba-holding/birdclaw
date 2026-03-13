@@ -8,23 +8,29 @@ import { getNativeDb, resetDatabaseForTests } from "./db";
 
 const mocks = vi.hoisted(() => ({
 	blockUserViaBird: vi.fn(),
+	readBirdStatusViaBird: vi.fn(),
+	blockUserViaXurl: vi.fn(),
 	listBlockedUsers: vi.fn(),
 	lookupAuthenticatedUser: vi.fn(),
 	lookupUsersByHandles: vi.fn(),
 	lookupUsersByIds: vi.fn(),
 	unblockUserViaBird: vi.fn(),
+	unblockUserViaXurl: vi.fn(),
 }));
 
 vi.mock("./bird-actions", () => ({
 	blockUserViaBird: mocks.blockUserViaBird,
+	readBirdStatusViaBird: mocks.readBirdStatusViaBird,
 	unblockUserViaBird: mocks.unblockUserViaBird,
 }));
 
 vi.mock("./xurl", () => ({
+	blockUserViaXurl: mocks.blockUserViaXurl,
 	listBlockedUsers: mocks.listBlockedUsers,
 	lookupAuthenticatedUser: mocks.lookupAuthenticatedUser,
 	lookupUsersByHandles: mocks.lookupUsersByHandles,
 	lookupUsersByIds: mocks.lookupUsersByIds,
+	unblockUserViaXurl: mocks.unblockUserViaXurl,
 }));
 
 const tempRoots: string[] = [];
@@ -43,11 +49,14 @@ afterEach(() => {
 	delete process.env.BIRDCLAW_HOME;
 	process.env.BIRDCLAW_DISABLE_LIVE_WRITES = "1";
 	mocks.blockUserViaBird.mockReset();
+	mocks.readBirdStatusViaBird.mockReset();
+	mocks.blockUserViaXurl.mockReset();
 	mocks.listBlockedUsers.mockReset();
 	mocks.lookupAuthenticatedUser.mockReset();
 	mocks.lookupUsersByHandles.mockReset();
 	mocks.lookupUsersByIds.mockReset();
 	mocks.unblockUserViaBird.mockReset();
+	mocks.unblockUserViaXurl.mockReset();
 
 	for (const tempRoot of tempRoots.splice(0)) {
 		rmSync(tempRoot, { recursive: true, force: true });
@@ -59,13 +68,25 @@ describe("blocklist", () => {
 		delete process.env.BIRDCLAW_DISABLE_LIVE_WRITES;
 		mocks.lookupAuthenticatedUser.mockResolvedValue({ id: "1" });
 		mocks.listBlockedUsers.mockResolvedValue({ items: [], nextToken: null });
+		mocks.readBirdStatusViaBird.mockResolvedValue({
+			blocking: true,
+			muting: false,
+		});
 		mocks.blockUserViaBird.mockResolvedValue({
 			ok: true,
 			output: "blocked via bird; verified blocking=true",
 		});
+		mocks.blockUserViaXurl.mockResolvedValue({
+			ok: true,
+			output: "blocked via xurl",
+		});
 		mocks.unblockUserViaBird.mockResolvedValue({
 			ok: true,
 			output: "unblocked via bird; verified blocking=false",
+		});
+		mocks.unblockUserViaXurl.mockResolvedValue({
+			ok: true,
+			output: "unblocked via xurl",
 		});
 		mocks.lookupUsersByHandles.mockResolvedValue([
 			{
@@ -100,6 +121,7 @@ describe("blocklist", () => {
 		expect(addResult.transport).toEqual({
 			ok: true,
 			output: "blocked via bird; verified blocking=true",
+			transport: "bird",
 		});
 		expect(mocks.lookupUsersByHandles).toHaveBeenCalledWith(["amelia"]);
 		expect(mocks.blockUserViaBird).toHaveBeenCalledWith("7");
@@ -123,6 +145,7 @@ describe("blocklist", () => {
 		expect(removeResult.transport).toEqual({
 			ok: true,
 			output: "unblocked via bird; verified blocking=false",
+			transport: "bird",
 		});
 		expect(mocks.unblockUserViaBird).toHaveBeenCalledWith("7");
 		expect(listBlocks({ account: "acct_primary" })).toHaveLength(0);
@@ -149,12 +172,15 @@ describe("blocklist", () => {
 		});
 		const { addBlock, listBlocks } = await import("./blocks");
 
-		const result = await addBlock("acct_primary", "amelia");
+		const result = await addBlock("acct_primary", "amelia", {
+			transport: "bird",
+		});
 
 		expect(result.ok).toBe(false);
 		expect(result.transport).toEqual({
 			ok: false,
 			output: "bird block failed",
+			transport: "bird",
 		});
 		expect(listBlocks({ account: "acct_primary" })).toHaveLength(0);
 	});
@@ -185,6 +211,43 @@ describe("blocklist", () => {
 
 		expect(result.accountId).toBe("acct_primary");
 		expect(listBlocks({ account: "acct_primary" })).toHaveLength(1);
+	});
+
+	it("can force xurl transport for block and unblock", async () => {
+		setupTempHome();
+		const { addBlock, listBlocks, removeBlock } = await import("./blocks");
+		mocks.readBirdStatusViaBird
+			.mockResolvedValueOnce({
+				blocking: true,
+				muting: false,
+			})
+			.mockResolvedValueOnce({
+				blocking: false,
+				muting: false,
+			});
+
+		const addResult = await addBlock("acct_primary", "@amelia", {
+			transport: "xurl",
+		});
+		const removeResult = await removeBlock("acct_primary", "@amelia", {
+			transport: "xurl",
+		});
+
+		expect(addResult.transport).toEqual({
+			ok: true,
+			output: "blocked via xurl\nverified blocking=true",
+			transport: "xurl",
+		});
+		expect(removeResult.transport).toEqual({
+			ok: true,
+			output: "unblocked via xurl\nverified blocking=false",
+			transport: "xurl",
+		});
+		expect(mocks.blockUserViaXurl).toHaveBeenCalledWith("1", "7");
+		expect(mocks.unblockUserViaXurl).toHaveBeenCalledWith("1", "7");
+		expect(mocks.blockUserViaBird).not.toHaveBeenCalled();
+		expect(mocks.unblockUserViaBird).not.toHaveBeenCalled();
+		expect(listBlocks({ account: "acct_primary" })).toHaveLength(0);
 	});
 
 	it("syncs remote blocks, prunes stale remote rows, and preserves manual rows", async () => {
@@ -326,12 +389,15 @@ describe("blocklist", () => {
 		const { addBlock, listBlocks, removeBlock } = await import("./blocks");
 
 		await addBlock("acct_primary", "amelia");
-		const result = await removeBlock("acct_primary", "amelia");
+		const result = await removeBlock("acct_primary", "amelia", {
+			transport: "bird",
+		});
 
 		expect(result.ok).toBe(false);
 		expect(result.transport).toEqual({
 			ok: false,
 			output: "bird unblock failed",
+			transport: "bird",
 		});
 		expect(listBlocks({ account: "acct_primary" })).toHaveLength(1);
 	});

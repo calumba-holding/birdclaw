@@ -7,20 +7,28 @@ import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
 
 const mocks = vi.hoisted(() => ({
+	lookupAuthenticatedUser: vi.fn(),
 	lookupUsersByHandles: vi.fn(),
 	lookupUsersByIds: vi.fn(),
 	muteUserViaBird: vi.fn(),
+	readBirdStatusViaBird: vi.fn(),
+	muteUserViaXurl: vi.fn(),
 	unmuteUserViaBird: vi.fn(),
+	unmuteUserViaXurl: vi.fn(),
 }));
 
 vi.mock("./bird-actions", () => ({
 	muteUserViaBird: mocks.muteUserViaBird,
+	readBirdStatusViaBird: mocks.readBirdStatusViaBird,
 	unmuteUserViaBird: mocks.unmuteUserViaBird,
 }));
 
 vi.mock("./xurl", () => ({
+	lookupAuthenticatedUser: mocks.lookupAuthenticatedUser,
 	lookupUsersByHandles: mocks.lookupUsersByHandles,
 	lookupUsersByIds: mocks.lookupUsersByIds,
+	muteUserViaXurl: mocks.muteUserViaXurl,
+	unmuteUserViaXurl: mocks.unmuteUserViaXurl,
 }));
 
 const tempDirs: string[] = [];
@@ -36,8 +44,20 @@ describe("mutes", () => {
 	beforeEach(() => {
 		mocks.lookupUsersByHandles.mockReset();
 		mocks.lookupUsersByIds.mockReset();
+		mocks.lookupAuthenticatedUser.mockReset();
 		mocks.muteUserViaBird.mockReset();
+		mocks.readBirdStatusViaBird.mockReset();
+		mocks.muteUserViaXurl.mockReset();
 		mocks.unmuteUserViaBird.mockReset();
+		mocks.unmuteUserViaXurl.mockReset();
+		mocks.lookupAuthenticatedUser.mockResolvedValue({
+			id: "1",
+			username: "steipete",
+		});
+		mocks.readBirdStatusViaBird.mockResolvedValue({
+			blocking: false,
+			muting: true,
+		});
 		mocks.lookupUsersByHandles.mockResolvedValue([
 			{
 				id: "7",
@@ -56,9 +76,17 @@ describe("mutes", () => {
 			ok: true,
 			output: "muted via bird; verified muting=true",
 		});
+		mocks.muteUserViaXurl.mockResolvedValue({
+			ok: true,
+			output: "muted via xurl",
+		});
 		mocks.unmuteUserViaBird.mockResolvedValue({
 			ok: true,
 			output: "unmuted via bird; verified muting=false",
+		});
+		mocks.unmuteUserViaXurl.mockResolvedValue({
+			ok: true,
+			output: "unmuted via xurl",
 		});
 	});
 
@@ -80,6 +108,7 @@ describe("mutes", () => {
 		expect(addResult.transport).toEqual({
 			ok: true,
 			output: "muted via bird; verified muting=true",
+			transport: "bird",
 		});
 		expect(mocks.muteUserViaBird).toHaveBeenCalledWith("7");
 
@@ -96,6 +125,7 @@ describe("mutes", () => {
 		expect(removeResult.transport).toEqual({
 			ok: true,
 			output: "unmuted via bird; verified muting=false",
+			transport: "bird",
 		});
 		expect(mocks.unmuteUserViaBird).toHaveBeenCalledWith("7");
 		expect(listMutes({ account: "acct_primary" })).toEqual([]);
@@ -109,11 +139,14 @@ describe("mutes", () => {
 		});
 		const { addMute, listMutes } = await import("./mutes");
 
-		await expect(addMute("acct_primary", "@amelia")).resolves.toMatchObject({
+		await expect(
+			addMute("acct_primary", "@amelia", { transport: "bird" }),
+		).resolves.toMatchObject({
 			ok: false,
 			transport: {
 				ok: false,
 				output: "bird mute failed",
+				transport: "bird",
 			},
 		});
 		expect(listMutes({ account: "acct_primary" })).toEqual([]);
@@ -153,6 +186,43 @@ describe("mutes", () => {
 		]);
 	});
 
+	it("can force xurl transport for mute and unmute", async () => {
+		makeTempHome();
+		const { addMute, listMutes, removeMute } = await import("./mutes");
+		mocks.readBirdStatusViaBird
+			.mockResolvedValueOnce({
+				blocking: false,
+				muting: true,
+			})
+			.mockResolvedValueOnce({
+				blocking: false,
+				muting: false,
+			});
+
+		const addResult = await addMute("acct_primary", "@amelia", {
+			transport: "xurl",
+		});
+		const removeResult = await removeMute("acct_primary", "@amelia", {
+			transport: "xurl",
+		});
+
+		expect(addResult.transport).toEqual({
+			ok: true,
+			output: "muted via xurl\nverified muting=true",
+			transport: "xurl",
+		});
+		expect(removeResult.transport).toEqual({
+			ok: true,
+			output: "unmuted via xurl\nverified muting=false",
+			transport: "xurl",
+		});
+		expect(mocks.muteUserViaXurl).toHaveBeenCalledWith("1", "7");
+		expect(mocks.unmuteUserViaXurl).toHaveBeenCalledWith("1", "7");
+		expect(mocks.muteUserViaBird).not.toHaveBeenCalled();
+		expect(mocks.unmuteUserViaBird).not.toHaveBeenCalled();
+		expect(listMutes({ account: "acct_primary" })).toHaveLength(0);
+	});
+
 	it("keeps local rows when bird unmute fails", async () => {
 		makeTempHome();
 		mocks.unmuteUserViaBird.mockResolvedValue({
@@ -162,11 +232,14 @@ describe("mutes", () => {
 		const { addMute, listMutes, removeMute } = await import("./mutes");
 
 		await addMute("acct_primary", "@amelia");
-		await expect(removeMute("acct_primary", "@amelia")).resolves.toMatchObject({
+		await expect(
+			removeMute("acct_primary", "@amelia", { transport: "bird" }),
+		).resolves.toMatchObject({
 			ok: false,
 			transport: {
 				ok: false,
 				output: "bird unmute failed",
+				transport: "bird",
 			},
 		});
 		expect(listMutes({ account: "acct_primary" })).toHaveLength(1);

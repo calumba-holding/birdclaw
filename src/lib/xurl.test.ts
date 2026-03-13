@@ -194,6 +194,33 @@ describe("xurl transport wrapper", () => {
 		await expect(lookupAuthenticatedUser()).resolves.toBeNull();
 	});
 
+	it("caches authenticated user lookups for repeated callers", async () => {
+		execFileAsyncMock.mockResolvedValueOnce({
+			stdout: JSON.stringify({ data: { id: "1", username: "steipete" } }),
+			stderr: "",
+		});
+		const { lookupAuthenticatedUser, resetAuthenticatedUserCache } =
+			await import("./xurl");
+
+		const first = await lookupAuthenticatedUser();
+		const second = await lookupAuthenticatedUser();
+
+		expect(first).toEqual({ id: "1", username: "steipete" });
+		expect(second).toEqual(first);
+		expect(execFileAsyncMock).toHaveBeenCalledTimes(1);
+
+		resetAuthenticatedUserCache();
+		execFileAsyncMock.mockResolvedValueOnce({
+			stdout: JSON.stringify({ data: { id: "2", username: "other" } }),
+			stderr: "",
+		});
+		await expect(lookupAuthenticatedUser()).resolves.toEqual({
+			id: "2",
+			username: "other",
+		});
+		expect(execFileAsyncMock).toHaveBeenCalledTimes(2);
+	});
+
 	it("lists blocked users and returns the next page token", async () => {
 		execFileAsyncMock.mockResolvedValueOnce({
 			stdout: JSON.stringify({

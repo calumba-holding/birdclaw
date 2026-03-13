@@ -9,6 +9,7 @@ import {
 	getBirdclawConfig,
 	getBirdclawPaths,
 	resetBirdclawPathsForTests,
+	resolveActionsTransport,
 	resolveMentionsDataSource,
 } from "./config";
 
@@ -18,6 +19,7 @@ afterEach(() => {
 	resetBirdclawPathsForTests();
 	delete process.env.BIRDCLAW_HOME;
 	delete process.env.BIRDCLAW_CONFIG;
+	delete process.env.BIRDCLAW_ACTIONS_TRANSPORT;
 	delete process.env.BIRDCLAW_BIRD_COMMAND;
 	delete process.env.BIRDCLAW_MENTIONS_DATA_SOURCE;
 
@@ -57,6 +59,9 @@ describe("config", () => {
 		writeFileSync(
 			path.join(tempRoot, "config.json"),
 			JSON.stringify({
+				actions: {
+					transport: "xurl",
+				},
 				mentions: {
 					dataSource: "bird",
 					birdCommand: "/tmp/custom-bird",
@@ -65,20 +70,26 @@ describe("config", () => {
 		);
 
 		expect(getBirdclawConfig()).toEqual({
+			actions: {
+				transport: "xurl",
+			},
 			mentions: {
 				dataSource: "bird",
 				birdCommand: "/tmp/custom-bird",
 			},
 		});
 		expect(resolveMentionsDataSource()).toBe("bird");
+		expect(resolveActionsTransport()).toBe("xurl");
 		expect(getBirdCommand()).toBe("/tmp/custom-bird");
 	});
 
 	it("lets env override config for the datasource", () => {
 		process.env.BIRDCLAW_MENTIONS_DATA_SOURCE = "xurl";
+		process.env.BIRDCLAW_ACTIONS_TRANSPORT = "bird";
 		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/env-bird";
 
 		expect(resolveMentionsDataSource()).toBe("xurl");
+		expect(resolveActionsTransport()).toBe("bird");
 		expect(getBirdCommand()).toBe("/tmp/env-bird");
 	});
 });

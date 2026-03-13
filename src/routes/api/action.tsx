@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { addBlock, removeBlock, syncBlocks } from "#/lib/blocks";
 import { scoreInbox } from "#/lib/inbox";
+import { addMute, removeMute } from "#/lib/mutes";
 import { createDmReply, createPost, createTweetReply } from "#/lib/queries";
 import type { InboxKind } from "#/lib/types";
 
@@ -36,11 +37,25 @@ export const Route = createFileRoute("/api/action")({
 					result = await addBlock(
 						body.accountId || "acct_primary",
 						body.query || "",
+						{ transport: body.transport },
 					);
 				} else if (body.kind === "unblockProfile") {
 					result = await removeBlock(
 						body.accountId || "acct_primary",
 						body.query || "",
+						{ transport: body.transport },
+					);
+				} else if (body.kind === "muteProfile") {
+					result = await addMute(
+						body.accountId || "acct_primary",
+						body.query || "",
+						{ transport: body.transport },
+					);
+				} else if (body.kind === "unmuteProfile") {
+					result = await removeMute(
+						body.accountId || "acct_primary",
+						body.query || "",
+						{ transport: body.transport },
 					);
 				} else if (body.kind === "syncBlocks") {
 					result = await syncBlocks(body.accountId || "acct_primary");

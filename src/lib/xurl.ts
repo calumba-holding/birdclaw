@@ -8,6 +8,7 @@ import type {
 
 const execFileAsync = promisify(execFile);
 const TRANSPORT_STATUS_TTL_MS = 5 * 60_000;
+const AUTHENTICATED_USER_TTL_MS = 60_000;
 const JSON_RETRY_LIMIT = 6;
 
 let transportStatusCache:
@@ -15,6 +16,13 @@ let transportStatusCache:
 			expiresAt: number;
 			pending?: Promise<TransportStatus>;
 			value?: TransportStatus;
+	  }
+	| undefined;
+let authenticatedUserCache:
+	| {
+			expiresAt: number;
+			pending?: Promise<Record<string, unknown> | null>;
+			value?: Record<string, unknown> | null;
 	  }
 	| undefined;
 
@@ -98,6 +106,10 @@ async function sleep(ms: number) {
 
 export function resetTransportStatusCache() {
 	transportStatusCache = undefined;
+}
+
+export function resetAuthenticatedUserCache() {
+	authenticatedUserCache = undefined;
 }
 
 async function hasXurl(): Promise<boolean> {
@@ -249,11 +261,43 @@ export async function lookupUsersByHandles(handles: string[]) {
 }
 
 export async function lookupAuthenticatedUser() {
-	const payload = await runJsonCommand(["whoami"]);
-	const data = payload.data;
-	return data && typeof data === "object"
-		? (data as Record<string, unknown>)
-		: null;
+	const now = Date.now();
+	if (
+		authenticatedUserCache &&
+		"value" in authenticatedUserCache &&
+		authenticatedUserCache.expiresAt > now
+	) {
+		return authenticatedUserCache.value ?? null;
+	}
+
+	if (authenticatedUserCache?.pending) {
+		return authenticatedUserCache.pending;
+	}
+
+	const pending = (async () => {
+		const payload = await runJsonCommand(["whoami"]);
+		const data = payload.data;
+		return data && typeof data === "object"
+			? (data as Record<string, unknown>)
+			: null;
+	})();
+
+	authenticatedUserCache = {
+		expiresAt: 0,
+		pending,
+	};
+
+	try {
+		const value = await pending;
+		authenticatedUserCache = {
+			expiresAt: Date.now() + AUTHENTICATED_USER_TTL_MS,
+			value,
+		};
+		return value;
+	} catch (error) {
+		authenticatedUserCache = undefined;
+		throw error;
+	}
 }
 
 export async function listMentionsViaXurl({

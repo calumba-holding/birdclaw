@@ -6,6 +6,8 @@ const createPostMock = vi.fn();
 const createTweetReplyMock = vi.fn();
 const createDmReplyMock = vi.fn();
 const removeBlockMock = vi.fn();
+const addMuteMock = vi.fn();
+const removeMuteMock = vi.fn();
 const scoreInboxMock = vi.fn();
 const syncBlocksMock = vi.fn();
 
@@ -21,6 +23,11 @@ vi.mock("#/lib/queries", () => ({
 	createDmReply: (...args: unknown[]) => createDmReplyMock(...args),
 }));
 
+vi.mock("#/lib/mutes", () => ({
+	addMute: (...args: unknown[]) => addMuteMock(...args),
+	removeMute: (...args: unknown[]) => removeMuteMock(...args),
+}));
+
 vi.mock("#/lib/inbox", () => ({
 	scoreInbox: (...args: unknown[]) => scoreInboxMock(...args),
 }));
@@ -34,6 +41,8 @@ describe("api action route", () => {
 		createTweetReplyMock.mockReset();
 		createDmReplyMock.mockReset();
 		removeBlockMock.mockReset();
+		addMuteMock.mockReset();
+		removeMuteMock.mockReset();
 		scoreInboxMock.mockReset();
 		syncBlocksMock.mockReset();
 	});
@@ -120,6 +129,8 @@ describe("api action route", () => {
 	it("dispatches blocklist actions", async () => {
 		addBlockMock.mockResolvedValue({ ok: true, action: "block" });
 		removeBlockMock.mockResolvedValue({ ok: true, action: "unblock" });
+		addMuteMock.mockResolvedValue({ ok: true, action: "mute" });
+		removeMuteMock.mockResolvedValue({ ok: true, action: "unmute" });
 		syncBlocksMock.mockResolvedValue({ ok: true, synced: true });
 
 		await Route.options.server.handlers.POST({
@@ -146,14 +157,46 @@ describe("api action route", () => {
 			request: new Request("http://localhost/api/action", {
 				method: "POST",
 				body: JSON.stringify({
+					kind: "muteProfile",
+					accountId: "acct_primary",
+					query: "@sam",
+					transport: "xurl",
+				}),
+			}),
+		});
+		await Route.options.server.handlers.POST({
+			request: new Request("http://localhost/api/action", {
+				method: "POST",
+				body: JSON.stringify({
+					kind: "unmuteProfile",
+					accountId: "acct_primary",
+					query: "@sam",
+					transport: "bird",
+				}),
+			}),
+		});
+		await Route.options.server.handlers.POST({
+			request: new Request("http://localhost/api/action", {
+				method: "POST",
+				body: JSON.stringify({
 					kind: "syncBlocks",
 					accountId: "acct_primary",
 				}),
 			}),
 		});
 
-		expect(addBlockMock).toHaveBeenCalledWith("acct_primary", "@sam");
-		expect(removeBlockMock).toHaveBeenCalledWith("acct_primary", "@sam");
+		expect(addBlockMock).toHaveBeenCalledWith("acct_primary", "@sam", {
+			transport: undefined,
+		});
+		expect(removeBlockMock).toHaveBeenCalledWith("acct_primary", "@sam", {
+			transport: undefined,
+		});
+		expect(addMuteMock).toHaveBeenCalledWith("acct_primary", "@sam", {
+			transport: "xurl",
+		});
+		expect(removeMuteMock).toHaveBeenCalledWith("acct_primary", "@sam", {
+			transport: "bird",
+		});
 		expect(syncBlocksMock).toHaveBeenCalledWith("acct_primary");
 	});
 
@@ -223,6 +266,8 @@ describe("api action route", () => {
 	it("uses fallback values when block payload fields are missing", async () => {
 		addBlockMock.mockResolvedValue({ ok: true });
 		removeBlockMock.mockResolvedValue({ ok: true });
+		addMuteMock.mockResolvedValue({ ok: true });
+		removeMuteMock.mockResolvedValue({ ok: true });
 		syncBlocksMock.mockResolvedValue({ ok: true });
 
 		await Route.options.server.handlers.POST({
@@ -240,12 +285,34 @@ describe("api action route", () => {
 		await Route.options.server.handlers.POST({
 			request: new Request("http://localhost/api/action", {
 				method: "POST",
+				body: JSON.stringify({ kind: "muteProfile" }),
+			}),
+		});
+		await Route.options.server.handlers.POST({
+			request: new Request("http://localhost/api/action", {
+				method: "POST",
+				body: JSON.stringify({ kind: "unmuteProfile" }),
+			}),
+		});
+		await Route.options.server.handlers.POST({
+			request: new Request("http://localhost/api/action", {
+				method: "POST",
 				body: JSON.stringify({ kind: "syncBlocks" }),
 			}),
 		});
 
-		expect(addBlockMock).toHaveBeenCalledWith("acct_primary", "");
-		expect(removeBlockMock).toHaveBeenCalledWith("acct_primary", "");
+		expect(addBlockMock).toHaveBeenCalledWith("acct_primary", "", {
+			transport: undefined,
+		});
+		expect(removeBlockMock).toHaveBeenCalledWith("acct_primary", "", {
+			transport: undefined,
+		});
+		expect(addMuteMock).toHaveBeenCalledWith("acct_primary", "", {
+			transport: undefined,
+		});
+		expect(removeMuteMock).toHaveBeenCalledWith("acct_primary", "", {
+			transport: undefined,
+		});
 		expect(syncBlocksMock).toHaveBeenCalledWith("acct_primary");
 	});
 });
