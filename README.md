@@ -106,7 +106,7 @@ export BIRDCLAW_HOME=/path/to/custom/root
 
 ## Requirements
 
-- Node `24.12.0`
+- Node `25.8.1`
 - `pnpm`
 - macOS recommended for Spotlight archive discovery
 - `xurl` optional for live reads / writes
@@ -196,6 +196,9 @@ Home config lives in `~/.birdclaw/config.json`. Example:
 
 ```json
 {
+  "actions": {
+    "transport": "auto"
+  },
   "mentions": {
     "dataSource": "bird",
     "birdCommand": "/Users/steipete/Projects/bird/bird"
@@ -209,6 +212,9 @@ Notes:
 - `--cache-ttl <seconds>` tunes freshness
 - `--all` walks every retrievable mentions page; `--max-pages` caps that scan
 - in paged `xurl` mode, `--limit` is the per-page size
+- `mentions.dataSource` controls live mention reads only
+- `actions.transport` controls live block/mute writes only
+- `actions.transport` accepts `auto`, `bird`, or `xurl`
 - `bird` mode uses your local `bird` CLI and caches its mentions output into birdclaw's canonical store
 - filters still work in `xurl` mode; filtered payloads are rebuilt from the local canonical store after sync
 
@@ -237,13 +243,16 @@ pnpm cli blocks import ~/triage/blocklist.txt --account acct_primary --json
 pnpm cli blocks add @amelia --account acct_primary --json
 pnpm cli blocks record @amelia --account acct_primary --json
 pnpm cli blocks remove @amelia --account acct_primary --json
-pnpm cli ban @amelia --account acct_primary --json
-pnpm cli unban @amelia --account acct_primary --json
+pnpm cli ban @amelia --account acct_primary --transport auto --json
+pnpm cli unban @amelia --account acct_primary --transport bird --json
 ```
 
 Notes:
 
-- `ban` / `unban` use `bird` for the live action, verify with `bird status`, and only then update local sqlite
+- `ban` / `unban` accept `--transport auto|bird|xurl`
+- `auto` tries `bird` first, then falls back to `xurl` when bird fails
+- forced `xurl` writes still verify through `bird status` before sqlite changes
+- X still rejects pure OAuth2 block writes, so `auto` is the safe default for block/unblock
 - `blocks import` accepts newline-delimited blocklists with comments and markdown bullets
 - `blocks sync` is for slow/manual remote reconciliation; not for a hot cron loop
 - `blocks record` stores a known-good remote block locally without issuing another live write
@@ -278,15 +287,22 @@ Typical tell:
 
 ```bash
 pnpm cli mutes list --account acct_primary --json
-pnpm cli mute @amelia --account acct_primary --json
+pnpm cli mute @amelia --account acct_primary --transport xurl --json
 pnpm cli mutes record @amelia --account acct_primary --json
-pnpm cli unmute @amelia --account acct_primary --json
+pnpm cli unmute @amelia --account acct_primary --transport auto --json
+```
 
 Notes:
 
-- `mute` / `unmute` use `bird` for the live action, verify with `bird status`, and only then update local sqlite
+- `mute` / `unmute` accept `--transport auto|bird|xurl`
+- `auto` tries `bird` first, then falls back to `xurl` when bird fails
+- forced `xurl` writes still verify through `bird status` before sqlite changes
 - `mutes record` stores a known-good remote mute locally without issuing another live write
-```
+
+### Test env hardening
+
+- Playwright strips inherited `--localstorage-file` from `NODE_OPTIONS` before starting Vite
+- this avoids cross-repo test warnings when another repo injected that flag
 
 ### Compose / reply
 
