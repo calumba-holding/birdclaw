@@ -3,17 +3,12 @@ import { spawn } from "node:child_process";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { Command } from "commander";
+import { registerModerationCommands } from "#/cli-moderation";
 import { findArchives } from "#/lib/archive-finder";
 import { importArchive } from "#/lib/archive-import";
 import { importBlocklist } from "#/lib/blocklist";
 import {
-	addBlock,
-	listBlocks,
-	recordBlock,
-	removeBlock,
-	syncBlocks,
-} from "#/lib/blocks";
-import {
+	type ActionsTransport,
 	ensureBirdclawDirs,
 	getBirdclawPaths,
 	resolveMentionsDataSource,
@@ -24,7 +19,6 @@ import {
 	exportMentionsViaCachedBird,
 	exportMentionsViaCachedXurl,
 } from "#/lib/mentions-live";
-import { addMute, listMutes, recordMute, removeMute } from "#/lib/mutes";
 import { hydrateProfilesFromX } from "#/lib/profile-hydration";
 import { inspectProfileReplies } from "#/lib/profile-replies";
 import {
@@ -44,6 +38,12 @@ function print(data: unknown, asJson: boolean) {
 		return;
 	}
 	console.log(data);
+}
+
+function resolveActionOptions(options: { transport?: string }) {
+	return {
+		transport: options.transport as ActionsTransport | undefined,
+	};
 }
 
 program
@@ -300,148 +300,13 @@ program
 		print(items, program.opts().json ?? false);
 	});
 
-const blocksCommand = program
-	.command("blocks")
-	.description("Maintain the local blocklist");
-
-blocksCommand
-	.command("list")
-	.option("--account <accountId>", "Account id")
-	.option("--search <query>", "Filter blocked profiles")
-	.option("--limit <n>", "Limit results", "50")
-	.action((options) => {
-		const items = listBlocks({
-			account: options.account,
-			search: options.search,
-			limit: Number(options.limit),
-		});
-		print(items, program.opts().json ?? false);
-	});
-
-blocksCommand
-	.command("add <query>")
-	.option("--account <accountId>", "Account id", "acct_primary")
-	.action(async (query, options) => {
-		const result = await addBlock(options.account, query);
-		print(result, program.opts().json ?? false);
-	});
-
-blocksCommand
-	.command("remove <query>")
-	.option("--account <accountId>", "Account id", "acct_primary")
-	.action(async (query, options) => {
-		const result = await removeBlock(options.account, query);
-		print(result, program.opts().json ?? false);
-	});
-
-blocksCommand
-	.command("sync")
-	.option("--account <accountId>", "Account id", "acct_primary")
-	.action(async (options) => {
-		const result = await syncBlocks(options.account);
-		print(result, program.opts().json ?? false);
-	});
-
-blocksCommand
-	.command("record <query>")
-	.description(
-		"Record a known-good remote block locally without another live write",
-	)
-	.option("--account <accountId>", "Account id", "acct_primary")
-	.action(async (query, options) => {
-		const result = await recordBlock(options.account, query);
-		print(result, program.opts().json ?? false);
-	});
-
-blocksCommand
-	.command("import <path>")
-	.description("Import a newline-delimited blocklist file")
-	.option("--account <accountId>", "Account id", "acct_primary")
-	.action(async (filePath, options) => {
-		const result = await importBlocklist(options.account, filePath);
-		print(result, program.opts().json ?? false);
-	});
-
-const mutesCommand = program
-	.command("mutes")
-	.description("Maintain the local mute list");
-
-mutesCommand
-	.command("list")
-	.option("--account <accountId>", "Account id")
-	.option("--search <query>", "Filter muted profiles")
-	.option("--limit <n>", "Limit results", "50")
-	.action((options) => {
-		const items = listMutes({
-			account: options.account,
-			search: options.search,
-			limit: Number(options.limit),
-		});
-		print(items, program.opts().json ?? false);
-	});
-
-mutesCommand
-	.command("add <query>")
-	.option("--account <accountId>", "Account id", "acct_primary")
-	.action(async (query, options) => {
-		const result = await addMute(options.account, query);
-		print(result, program.opts().json ?? false);
-	});
-
-mutesCommand
-	.command("remove <query>")
-	.option("--account <accountId>", "Account id", "acct_primary")
-	.action(async (query, options) => {
-		const result = await removeMute(options.account, query);
-		print(result, program.opts().json ?? false);
-	});
-
-mutesCommand
-	.command("record <query>")
-	.description(
-		"Record a known-good remote mute locally without another live write",
-	)
-	.option("--account <accountId>", "Account id", "acct_primary")
-	.action(async (query, options) => {
-		const result = await recordMute(options.account, query);
-		print(result, program.opts().json ?? false);
-	});
-
-program
-	.command("ban <query>")
-	.description("Alias for blocks add")
-	.option("--account <accountId>", "Account id", "acct_primary")
-	.action(async (query, options) => {
-		const result = await addBlock(options.account, query);
-		print(result, program.opts().json ?? false);
-	});
-
-program
-	.command("unban <query>")
-	.description("Alias for blocks remove")
-	.option("--account <accountId>", "Account id", "acct_primary")
-	.action(async (query, options) => {
-		const result = await removeBlock(options.account, query);
-		print(result, program.opts().json ?? false);
-	});
-
-program
-	.command("mute <query>")
-	.description("Mute a user for one account")
-	.option("--account <accountId>", "Account id", "acct_primary")
-	.action(async (query, options) => {
-		const result = await addMute(options.account, query);
-		print(result, program.opts().json ?? false);
-	});
-
-program
-	.command("unmute <query>")
-	.description("Unmute a user for one account")
-	.option("--account <accountId>", "Account id", "acct_primary")
-	.action(async (query, options) => {
-		const result = await removeMute(options.account, query);
-		print(result, program.opts().json ?? false);
-	});
+registerModerationCommands({
+	program,
+	print,
+	asJson: () => program.opts().json ?? false,
+	importBlocklist,
+	resolveActionOptions,
+});
 
 const composeCommand = program
 	.command("compose")

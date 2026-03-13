@@ -566,6 +566,8 @@ describe("cli", () => {
 			"@sam",
 			"--account",
 			"acct_studio",
+			"--transport",
+			"xurl",
 		]);
 		await runCli([
 			"node",
@@ -575,6 +577,8 @@ describe("cli", () => {
 			"@sam",
 			"--account",
 			"acct_studio",
+			"--transport",
+			"bird",
 		]);
 		await runCli([
 			"node",
@@ -603,8 +607,12 @@ describe("cli", () => {
 			"acct_studio",
 			"/tmp/blocklist.txt",
 		);
-		expect(addBlockMock).toHaveBeenCalledWith("acct_studio", "@sam");
-		expect(removeBlockMock).toHaveBeenCalledWith("acct_studio", "@sam");
+		expect(addBlockMock).toHaveBeenCalledWith("acct_studio", "@sam", {
+			transport: "xurl",
+		});
+		expect(removeBlockMock).toHaveBeenCalledWith("acct_studio", "@sam", {
+			transport: "bird",
+		});
 		expect(syncBlocksMock).toHaveBeenCalledWith("acct_studio");
 		expect(recordBlockMock).toHaveBeenCalledWith("acct_studio", "@sam");
 	});
@@ -629,6 +637,8 @@ describe("cli", () => {
 			"@sam",
 			"--account",
 			"acct_studio",
+			"--transport",
+			"xurl",
 		]);
 		await runCli([
 			"node",
@@ -637,6 +647,8 @@ describe("cli", () => {
 			"@sam",
 			"--account",
 			"acct_studio",
+			"--transport",
+			"auto",
 		]);
 		await runCli([
 			"node",
@@ -654,6 +666,8 @@ describe("cli", () => {
 			"@sam",
 			"--account",
 			"acct_studio",
+			"--transport",
+			"xurl",
 		]);
 		await runCli([
 			"node",
@@ -662,6 +676,8 @@ describe("cli", () => {
 			"@sam",
 			"--account",
 			"acct_studio",
+			"--transport",
+			"bird",
 		]);
 
 		expect(listMutesMock).toHaveBeenCalledWith({
@@ -669,11 +685,19 @@ describe("cli", () => {
 			search: "sam",
 			limit: 50,
 		});
-		expect(addMuteMock).toHaveBeenCalledWith("acct_studio", "@sam");
-		expect(removeMuteMock).toHaveBeenCalledWith("acct_studio", "@sam");
+		expect(addMuteMock).toHaveBeenCalledWith("acct_studio", "@sam", {
+			transport: "xurl",
+		});
+		expect(removeMuteMock).toHaveBeenCalledWith("acct_studio", "@sam", {
+			transport: "auto",
+		});
 		expect(recordMuteMock).toHaveBeenCalledWith("acct_studio", "@sam");
-		expect(addBlockMock).toHaveBeenCalledWith("acct_studio", "@sam");
-		expect(removeBlockMock).toHaveBeenCalledWith("acct_studio", "@sam");
+		expect(addBlockMock).toHaveBeenCalledWith("acct_studio", "@sam", {
+			transport: "xurl",
+		});
+		expect(removeBlockMock).toHaveBeenCalledWith("acct_studio", "@sam", {
+			transport: "bird",
+		});
 	});
 
 	it("exports mentions as json with rendered text fields", async () => {
