@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { lookupProfileViaBird } from "./bird-actions";
 import { getNativeDb } from "./db";
 import type { ProfileRecord, XurlMentionUser } from "./types";
 import { getExternalUserId, upsertProfileFromXUser } from "./x-profile";
@@ -106,19 +107,35 @@ export async function resolveProfile(
 	}
 
 	let user: Record<string, unknown> | undefined;
+	let lastError: unknown;
+
 	try {
-		if (/^\d+$/.test(normalizedQuery)) {
-			[user] = await lookupUsersByIds([normalizedQuery]);
-		} else {
-			[user] = await lookupUsersByHandles([
-				local?.profile.handle ?? normalizedQuery,
-			]);
-		}
+		user =
+			(await lookupProfileViaBird(local?.profile.handle ?? normalizedQuery)) ??
+			undefined;
 	} catch (error) {
+		lastError = error;
+	}
+
+	if (!user) {
+		try {
+			if (/^\d+$/.test(normalizedQuery)) {
+				[user] = await lookupUsersByIds([normalizedQuery]);
+			} else {
+				[user] = await lookupUsersByHandles([
+					local?.profile.handle ?? normalizedQuery,
+				]);
+			}
+		} catch (error) {
+			lastError = error;
+		}
+	}
+
+	if (!user && lastError) {
 		if (local) {
 			return local;
 		}
-		throw error;
+		throw lastError;
 	}
 
 	if (!user) {

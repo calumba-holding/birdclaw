@@ -8,6 +8,7 @@ import { getNativeDb, resetDatabaseForTests } from "./db";
 
 const mocks = vi.hoisted(() => ({
 	blockUserViaBird: vi.fn(),
+	lookupProfileViaBird: vi.fn(),
 	readBirdStatusViaBird: vi.fn(),
 	blockUserViaXurl: vi.fn(),
 	listBlockedUsers: vi.fn(),
@@ -20,6 +21,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./bird-actions", () => ({
 	blockUserViaBird: mocks.blockUserViaBird,
+	lookupProfileViaBird: mocks.lookupProfileViaBird,
 	readBirdStatusViaBird: mocks.readBirdStatusViaBird,
 	unblockUserViaBird: mocks.unblockUserViaBird,
 }));
@@ -49,6 +51,7 @@ afterEach(() => {
 	delete process.env.BIRDCLAW_HOME;
 	process.env.BIRDCLAW_DISABLE_LIVE_WRITES = "1";
 	mocks.blockUserViaBird.mockReset();
+	mocks.lookupProfileViaBird.mockReset();
 	mocks.readBirdStatusViaBird.mockReset();
 	mocks.blockUserViaXurl.mockReset();
 	mocks.listBlockedUsers.mockReset();
@@ -66,6 +69,7 @@ afterEach(() => {
 describe("blocklist", () => {
 	beforeEach(() => {
 		delete process.env.BIRDCLAW_DISABLE_LIVE_WRITES;
+		mocks.lookupProfileViaBird.mockResolvedValue(null);
 		mocks.lookupAuthenticatedUser.mockResolvedValue({ id: "1" });
 		mocks.listBlockedUsers.mockResolvedValue({ items: [], nextToken: null });
 		mocks.readBirdStatusViaBird.mockResolvedValue({

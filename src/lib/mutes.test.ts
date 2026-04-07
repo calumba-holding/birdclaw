@@ -7,6 +7,7 @@ import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
 
 const mocks = vi.hoisted(() => ({
+	lookupProfileViaBird: vi.fn(),
 	lookupAuthenticatedUser: vi.fn(),
 	lookupUsersByHandles: vi.fn(),
 	lookupUsersByIds: vi.fn(),
@@ -18,6 +19,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("./bird-actions", () => ({
+	lookupProfileViaBird: mocks.lookupProfileViaBird,
 	muteUserViaBird: mocks.muteUserViaBird,
 	readBirdStatusViaBird: mocks.readBirdStatusViaBird,
 	unmuteUserViaBird: mocks.unmuteUserViaBird,
@@ -42,6 +44,7 @@ function makeTempHome() {
 
 describe("mutes", () => {
 	beforeEach(() => {
+		mocks.lookupProfileViaBird.mockReset();
 		mocks.lookupUsersByHandles.mockReset();
 		mocks.lookupUsersByIds.mockReset();
 		mocks.lookupAuthenticatedUser.mockReset();
@@ -53,6 +56,11 @@ describe("mutes", () => {
 		mocks.lookupAuthenticatedUser.mockResolvedValue({
 			id: "1",
 			username: "steipete",
+		});
+		mocks.lookupProfileViaBird.mockResolvedValue({
+			id: "7",
+			username: "amelia",
+			name: "Amelia",
 		});
 		mocks.readBirdStatusViaBird.mockResolvedValue({
 			blocking: false,

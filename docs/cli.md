@@ -322,7 +322,8 @@ Flags:
 
 - add a local mute entry for one account
 - accepts handle, `@handle`, X URL, local profile id, or numeric X user id
-- attempts live mute transport via `xurl` when resolvable
+- resolves remote targets via `bird user --json` before falling back to `xurl /2/users`
+- `--transport auto` tries `bird` first, then `xurl`
 - still records the local mute if live transport is unavailable
 
 Flags:
@@ -331,7 +332,7 @@ Flags:
 ### `unmute <handle-or-id>`
 
 - remove a local mute entry for one account
-- attempts live unmute transport via `xurl` when resolvable
+- `--transport auto` tries `bird` first, then `xurl`
 
 Flags:
 - `--account <account-id>`

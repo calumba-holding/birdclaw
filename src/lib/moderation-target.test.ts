@@ -7,9 +7,14 @@ import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
 
 const mocks = vi.hoisted(() => ({
+	lookupProfileViaBird: vi.fn(),
 	lookupAuthenticatedUser: vi.fn(),
 	lookupUsersByHandles: vi.fn(),
 	lookupUsersByIds: vi.fn(),
+}));
+
+vi.mock("./bird-actions", () => ({
+	lookupProfileViaBird: mocks.lookupProfileViaBird,
 }));
 
 vi.mock("./xurl", () => ({
@@ -41,6 +46,7 @@ afterEach(() => {
 
 describe("moderation target helpers", () => {
 	beforeEach(() => {
+		mocks.lookupProfileViaBird.mockReset();
 		mocks.lookupAuthenticatedUser.mockReset();
 		mocks.lookupUsersByHandles.mockReset();
 		mocks.lookupUsersByIds.mockReset();
@@ -105,21 +111,20 @@ describe("moderation target helpers", () => {
 			null,
 			"2026-03-09T00:00:00.000Z",
 		);
-		mocks.lookupUsersByHandles
-			.mockResolvedValueOnce([
-				{
-					id: "88",
-					username: "amelia",
-					name: "Amelia",
-				},
-			])
-			.mockRejectedValueOnce(new Error("network down"));
+		mocks.lookupProfileViaBird
+			.mockResolvedValueOnce({
+				id: "88",
+				username: "amelia",
+				name: "Amelia",
+			})
+			.mockRejectedValueOnce(new Error("bird down"));
+		mocks.lookupUsersByHandles.mockRejectedValueOnce(new Error("network down"));
 		const { resolveProfile } = await import("./moderation-target");
 
 		await expect(resolveProfile("@amelia")).resolves.toMatchObject({
 			profile: expect.objectContaining({
-				id: "profile_amelia",
 				handle: "amelia",
+				displayName: "Amelia",
 			}),
 			externalUserId: "88",
 		});
@@ -130,6 +135,28 @@ describe("moderation target helpers", () => {
 			}),
 			externalUserId: null,
 		});
+	});
+
+	it("falls back to xurl lookups when bird profile lookup misses", async () => {
+		makeTempHome();
+		mocks.lookupProfileViaBird.mockResolvedValueOnce(null);
+		mocks.lookupUsersByIds.mockResolvedValueOnce([
+			{
+				id: "88",
+				username: "amelia",
+				name: "Amelia",
+			},
+		]);
+		const { resolveProfile } = await import("./moderation-target");
+
+		await expect(resolveProfile("88")).resolves.toMatchObject({
+			profile: expect.objectContaining({
+				handle: "amelia",
+				displayName: "Amelia",
+			}),
+			externalUserId: "88",
+		});
+		expect(mocks.lookupUsersByIds).toHaveBeenCalledWith(["88"]);
 	});
 
 	it("returns authenticated ids safely", async () => {

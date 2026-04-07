@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { getBirdCommand } from "./config";
+import type { XurlMentionUser } from "./types";
 
 const execFileAsync = promisify(execFile);
 
@@ -46,11 +47,69 @@ async function runBirdCommand(args: string[]) {
 	return execFileAsync(birdCommand, args);
 }
 
+async function runBirdJsonCommand(args: string[]) {
+	const { stdout } = await runBirdCommand(args);
+	return JSON.parse(stripAnsi(stdout)) as Record<string, unknown>;
+}
+
 export async function readBirdStatusViaBird(query: string) {
 	try {
-		const { stdout } = await runBirdCommand(["status", query, "--json"]);
-		const payload = JSON.parse(stdout) as Record<string, unknown>;
+		const payload = await runBirdJsonCommand(["status", query, "--json"]);
 		return payload;
+	} catch {
+		return null;
+	}
+}
+
+function toBirdLookupUser(payload: Record<string, unknown>): XurlMentionUser {
+	const user =
+		payload.user && typeof payload.user === "object"
+			? (payload.user as Record<string, unknown>)
+			: null;
+	if (!user) {
+		throw new Error("bird user payload missing user object");
+	}
+
+	const id = typeof user.id === "string" ? user.id : "";
+	const username =
+		typeof user.username === "string"
+			? user.username.replace(/^@/, "").trim()
+			: "";
+	if (!id || !username) {
+		throw new Error("bird user payload missing id or username");
+	}
+
+	const followersCount = Number(user.followersCount ?? 0);
+	return {
+		id,
+		name:
+			typeof user.name === "string" && user.name.trim().length > 0
+				? user.name
+				: username,
+		username,
+		description:
+			typeof user.description === "string" ? user.description : undefined,
+		profile_image_url:
+			typeof user.profileImageUrl === "string"
+				? user.profileImageUrl
+				: undefined,
+		public_metrics: {
+			followers_count: Number.isFinite(followersCount) ? followersCount : 0,
+		},
+		created_at: typeof user.createdAt === "string" ? user.createdAt : undefined,
+	};
+}
+
+export async function lookupProfileViaBird(query: string) {
+	try {
+		const payload = await runBirdJsonCommand([
+			"user",
+			query,
+			"-n",
+			"1",
+			"--json",
+		]);
+		return toBirdLookupUser(payload);
 	} catch {
 		return null;
 	}

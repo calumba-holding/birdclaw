@@ -295,6 +295,7 @@ pnpm cli unmute @amelia --account acct_primary --transport auto --json
 Notes:
 
 - `mute` / `unmute` accept `--transport auto|bird|xurl`
+- target profile resolution prefers `bird user --json` before any `xurl /2/users` lookup
 - `auto` tries `bird` first, then falls back to `xurl` when bird fails
 - forced `xurl` writes still verify through `bird status` before sqlite changes
 - `mutes record` stores a known-good remote mute locally without issuing another live write
