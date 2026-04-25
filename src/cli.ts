@@ -13,6 +13,7 @@ import {
 	getBirdclawPaths,
 	resolveMentionsDataSource,
 } from "#/lib/config";
+import { syncDirectMessagesViaCachedBird } from "#/lib/dms-live";
 import { listInboxItems, scoreInbox } from "#/lib/inbox";
 import { exportMentionItems } from "#/lib/mentions-export";
 import {
@@ -262,8 +263,13 @@ profilesCommand
 		print(result, program.opts().json ?? false);
 	});
 
-program
-	.command("dms list")
+const dmsCommand = program.command("dms").description("Direct messages");
+
+dmsCommand
+	.command("list")
+	.option("--account <accountId>", "Account id")
+	.option("--refresh", "Refresh live DMs through bird before listing")
+	.option("--cache-ttl <seconds>", "Live-cache freshness window", "120")
 	.option("--participant <value>")
 	.option("--min-followers <n>", "Minimum sender follower count")
 	.option("--max-followers <n>", "Maximum sender follower count")
@@ -273,13 +279,22 @@ program
 	.option("--replied", "Only replied threads")
 	.option("--unreplied", "Only unreplied threads")
 	.option("--limit <n>", "Limit results", "20")
-	.action((_, options) => {
+	.action(async (options) => {
 		const replyFilter = options.replied
 			? "replied"
 			: options.unreplied
 				? "unreplied"
 				: "all";
+		if (options.refresh) {
+			await syncDirectMessagesViaCachedBird({
+				account: options.account,
+				limit: Number(options.limit),
+				refresh: true,
+				cacheTtlMs: Number(options.cacheTtl) * 1000,
+			});
+		}
 		const items = listDmConversations({
+			account: options.account,
 			participant: options.participant,
 			minFollowers: options.minFollowers
 				? Number(options.minFollowers)
@@ -298,6 +313,23 @@ program
 			limit: Number(options.limit),
 		});
 		print(items, program.opts().json ?? false);
+	});
+
+dmsCommand
+	.command("sync")
+	.description("Refresh live direct messages through bird into the local store")
+	.option("--account <accountId>", "Account id")
+	.option("--limit <n>", "Limit messages", "20")
+	.option("--cache-ttl <seconds>", "Live-cache freshness window", "120")
+	.option("--refresh", "Bypass live-cache freshness window")
+	.action(async (options) => {
+		const result = await syncDirectMessagesViaCachedBird({
+			account: options.account,
+			limit: Number(options.limit),
+			refresh: Boolean(options.refresh),
+			cacheTtlMs: Number(options.cacheTtl) * 1000,
+		});
+		print(result, true);
 	});
 
 registerModerationCommands({

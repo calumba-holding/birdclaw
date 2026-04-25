@@ -223,6 +223,8 @@ Notes:
 ```bash
 pnpm cli search dms "prototype" --json
 pnpm cli search dms "layout" --min-followers 1000 --min-influence-score 120 --sort influence --json
+pnpm cli dms sync --limit 50 --refresh --json
+pnpm cli dms list --refresh --limit 10 --json
 pnpm cli dms list --unreplied --min-followers 500 --min-influence-score 90 --sort influence --json
 ```
 

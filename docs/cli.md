@@ -234,8 +234,11 @@ birdclaw profiles replies @jpctan --limit 12 --json
 
 - list DM conversations or events without requiring a full-text query
 - optimized for agent and operator filtering
+- optionally refreshes live DMs through `bird` before listing
 
 Flags:
+- `--refresh`
+- `--cache-ttl <seconds>`
 - `--participant <handle-or-id>`
 - `--min-followers <n>`
 - `--max-followers <n>`
@@ -246,6 +249,18 @@ Flags:
 - `--unreplied`
 - `--account <name>`
 - `--limit <n>`
+
+### `dms sync`
+
+- refresh live direct messages through `bird`
+- merge conversations/messages into the local SQLite store
+- supports `--json`
+
+Flags:
+- `--account <account-id>`
+- `--limit <n>`
+- `--refresh`
+- `--cache-ttl <seconds>`
 
 ### `inbox`
 

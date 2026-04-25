@@ -14,6 +14,7 @@ const syncBlocksMock = vi.fn();
 const exportMentionItemsMock = vi.fn();
 const exportMentionsViaCachedBirdMock = vi.fn();
 const exportMentionsViaCachedXurlMock = vi.fn();
+const syncDirectMessagesViaCachedBirdMock = vi.fn();
 const listBlocksMock = vi.fn();
 const addMuteMock = vi.fn();
 const listMutesMock = vi.fn();
@@ -92,6 +93,11 @@ vi.mock("#/lib/mentions-live", () => ({
 		exportMentionsViaCachedXurlMock(...args),
 }));
 
+vi.mock("#/lib/dms-live", () => ({
+	syncDirectMessagesViaCachedBird: (...args: unknown[]) =>
+		syncDirectMessagesViaCachedBirdMock(...args),
+}));
+
 vi.mock("#/lib/profile-hydration", () => ({
 	hydrateProfilesFromX: (...args: unknown[]) =>
 		hydrateProfilesFromXMock(...args),
@@ -137,6 +143,7 @@ describe("cli", () => {
 		exportMentionItemsMock.mockReset();
 		exportMentionsViaCachedBirdMock.mockReset();
 		exportMentionsViaCachedXurlMock.mockReset();
+		syncDirectMessagesViaCachedBirdMock.mockReset();
 		listBlocksMock.mockReset();
 		addMuteMock.mockReset();
 		listMutesMock.mockReset();
@@ -212,6 +219,13 @@ describe("cli", () => {
 			data: [{ id: "tweet_live_1" }],
 			includes: { users: [{ id: "42", username: "sam", name: "Sam" }] },
 			meta: { result_count: 1 },
+		});
+		syncDirectMessagesViaCachedBirdMock.mockResolvedValue({
+			ok: true,
+			source: "bird",
+			accountId: "acct_primary",
+			conversations: 1,
+			messages: 2,
 		});
 		listBlocksMock.mockReturnValue([{ accountId: "acct_primary" }]);
 		addMuteMock.mockResolvedValue({ ok: true, action: "mute" });
@@ -430,6 +444,30 @@ describe("cli", () => {
 			"birdclaw",
 			"dms",
 			"list",
+			"--account",
+			"acct_primary",
+			"--refresh",
+			"--limit",
+			"12",
+		]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"dms",
+			"sync",
+			"--account",
+			"acct_primary",
+			"--limit",
+			"7",
+			"--refresh",
+			"--cache-ttl",
+			"45",
+		]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"dms",
+			"list",
 			"--min-followers",
 			"10",
 			"--min-influence-score",
@@ -457,6 +495,7 @@ describe("cli", () => {
 			limit: 9,
 		});
 		expect(listDmConversationsMock).toHaveBeenCalledWith({
+			account: undefined,
 			participant: "des",
 			minFollowers: undefined,
 			maxFollowers: 200000,
@@ -467,6 +506,7 @@ describe("cli", () => {
 			limit: 20,
 		});
 		expect(listDmConversationsMock).toHaveBeenCalledWith({
+			account: undefined,
 			participant: undefined,
 			minFollowers: undefined,
 			maxFollowers: undefined,
@@ -477,6 +517,30 @@ describe("cli", () => {
 			limit: 20,
 		});
 		expect(listDmConversationsMock).toHaveBeenCalledWith({
+			account: "acct_primary",
+			participant: undefined,
+			minFollowers: undefined,
+			maxFollowers: undefined,
+			minInfluenceScore: undefined,
+			maxInfluenceScore: undefined,
+			sort: "recent",
+			replyFilter: "all",
+			limit: 12,
+		});
+		expect(syncDirectMessagesViaCachedBirdMock).toHaveBeenCalledWith({
+			account: "acct_primary",
+			limit: 12,
+			refresh: true,
+			cacheTtlMs: 120_000,
+		});
+		expect(syncDirectMessagesViaCachedBirdMock).toHaveBeenCalledWith({
+			account: "acct_primary",
+			limit: 7,
+			refresh: true,
+			cacheTtlMs: 45_000,
+		});
+		expect(listDmConversationsMock).toHaveBeenCalledWith({
+			account: undefined,
 			participant: undefined,
 			minFollowers: 10,
 			maxFollowers: undefined,

@@ -33,6 +33,38 @@ interface BirdMentionItem {
 	media?: BirdMentionMedia[];
 }
 
+export interface BirdDmUser {
+	id: string;
+	username?: string;
+	name?: string;
+	profileImageUrl?: string;
+}
+
+export interface BirdDmEvent {
+	id: string;
+	conversationId?: string;
+	text: string;
+	createdAt?: string;
+	senderId?: string;
+	recipientId?: string;
+	sender?: BirdDmUser;
+	recipient?: BirdDmUser;
+}
+
+export interface BirdDmConversation {
+	id: string;
+	participants: BirdDmUser[];
+	messages: BirdDmEvent[];
+	lastMessageAt?: string;
+	lastMessagePreview?: string;
+}
+
+export interface BirdDmsResponse {
+	success: true;
+	conversations: BirdDmConversation[];
+	events: BirdDmEvent[];
+}
+
 function toIsoTimestamp(value: string) {
 	const parsed = new Date(value);
 	if (Number.isNaN(parsed.getTime())) {
@@ -122,4 +154,30 @@ export async function listMentionsViaBird({
 	}
 
 	return normalizeBirdMentions(payload as BirdMentionItem[]);
+}
+
+export async function listDirectMessagesViaBird({
+	maxResults,
+}: {
+	maxResults: number;
+}): Promise<BirdDmsResponse> {
+	const birdCommand = getBirdCommand();
+	const { stdout } = await execFileAsync(birdCommand, [
+		"dms",
+		"-n",
+		String(maxResults),
+		"--json",
+	]);
+	const payload = JSON.parse(stdout) as unknown;
+	if (
+		!payload ||
+		typeof payload !== "object" ||
+		(payload as { success?: unknown }).success !== true ||
+		!Array.isArray((payload as { conversations?: unknown }).conversations) ||
+		!Array.isArray((payload as { events?: unknown }).events)
+	) {
+		throw new Error("bird dms returned unexpected JSON");
+	}
+
+	return payload as BirdDmsResponse;
 }
