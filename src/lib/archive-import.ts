@@ -262,23 +262,23 @@ export async function importArchive(
 	archivePath: string,
 ): Promise<ImportedArchiveSummary> {
 	const entries = await listArchiveEntries(archivePath);
-	const accountEntry = getFirstEntry(entries, /\/data\/account\.js$/i);
-	const profileEntry = getFirstEntry(entries, /\/data\/profile\.js$/i);
+	const accountEntry = getFirstEntry(entries, /(?:^|\/)data\/account\.js$/i);
+	const profileEntry = getFirstEntry(entries, /(?:^|\/)data\/profile\.js$/i);
 	const tweetEntries = getMatchingEntries(
 		entries,
-		/\/data\/(?:tweets|community-tweet)(?:-part\d+)?\.js$/i,
+		/(?:^|\/)data\/(?:tweets|community-tweet)(?:-part\d+)?\.js$/i,
 	);
 	const noteTweetEntries = getMatchingEntries(
 		entries,
-		/\/data\/note-tweet(?:-part\d+)?\.js$/i,
+		/(?:^|\/)data\/note-tweet(?:-part\d+)?\.js$/i,
 	);
 	const likeEntries = getMatchingEntries(
 		entries,
-		/\/data\/(?:like|likes)(?:-part\d+)?\.js$/i,
+		/(?:^|\/)data\/(?:like|likes)(?:-part\d+)?\.js$/i,
 	);
 	const dmEntries = getMatchingEntries(
 		entries,
-		/\/data\/direct-messages(?:-group)?(?:-part\d+)?\.js$/i,
+		/(?:^|\/)data\/direct-messages(?:-group)?(?:-part\d+)?\.js$/i,
 	);
 
 	if (!accountEntry) {

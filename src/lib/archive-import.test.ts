@@ -154,6 +154,47 @@ function makeArchiveWithoutAccount() {
 	return archivePath;
 }
 
+function makeRootDataArchive() {
+	const root = mkdtempSync(path.join(os.tmpdir(), "birdclaw-archive-root-"));
+	const archiveDir = path.join(root, "data");
+	mkdirSync(archiveDir, { recursive: true });
+
+	writeFileSync(
+		path.join(archiveDir, "account.js"),
+		'window.YTD.account.part0 = [{ "account": { "accountId": "25401953", "username": "steipete" } }]',
+	);
+	writeFileSync(
+		path.join(archiveDir, "tweets.js"),
+		'window.YTD.tweets.part0 = [{ "tweet": { "id_str": "root-1", "created_at": "Tue Jun 03 19:32:20 +0000 2025", "full_text": "root level archive search term" } }]',
+	);
+	writeFileSync(
+		path.join(archiveDir, "direct-messages.js"),
+		`window.YTD.direct_messages.part0 = [
+  {
+    "dmConversation": {
+      "conversationId": "root-dm",
+      "messages": [
+        {
+          "messageCreate": {
+            "id": "root-m1",
+            "senderId": "42",
+            "recipientId": "25401953",
+            "createdAt": "2025-06-03T20:00:00.000Z",
+            "text": "root dm search term"
+          }
+        }
+      ]
+    }
+  }
+]`,
+	);
+
+	const archivePath = path.join(root, "archive.zip");
+	execFileSync("zip", ["-qr", archivePath, "data"], { cwd: root });
+	createdDirs.push(root);
+	return archivePath;
+}
+
 function makeWeirdArchive() {
 	const root = mkdtempSync(path.join(os.tmpdir(), "birdclaw-archive-weird-"));
 	const archiveDir = path.join(root, "sample", "data");
@@ -446,6 +487,37 @@ describe("archive import", () => {
 		await expect(importArchive(archivePath)).rejects.toThrow(
 			"Archive missing data/account.js",
 		);
+	});
+
+	it("imports archives whose data directory is at zip root", async () => {
+		const archivePath = makeRootDataArchive();
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+
+		const result = await importArchive(archivePath);
+		const db = getNativeDb();
+
+		expect(result.counts.tweets).toBe(1);
+		expect(result.counts.dmMessages).toBe(1);
+		expect(
+			(
+				db
+					.prepare(
+						"select count(*) as count from tweets_fts where tweets_fts match 'root'",
+					)
+					.get() as { count: number }
+			).count,
+		).toBe(1);
+		expect(
+			(
+				db
+					.prepare(
+						"select count(*) as count from dm_fts where dm_fts match 'root'",
+					)
+					.get() as { count: number }
+			).count,
+		).toBe(1);
 	});
 
 	it("handles missing profile data, split likes files, and group dm edge cases", async () => {
