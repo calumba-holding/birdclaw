@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 - Add live likes and bookmarks sync through `xurl`/`bird`, local search filters, archive import support, and dedicated Likes/Bookmarks web views.
 - Add Git-friendly JSONL backup sync, export, import, validation, and stale-aware auto-sync for rebuilding or merging the local SQLite store from text shards across machines.
+- Add a scheduled bookmark sync job with launchd installation, JSONL audit logging, overlap locking, and automatic Git backup sync after each refresh.
 
 ### Changed
 
@@ -20,6 +21,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - Fix live bookmark sync to use stored X user ids, force OAuth2 for `xurl` collection reads, and tolerate large/current `bird` bookmark payloads.
+- Fix fresh-machine backup sync so demo data is never exported into Git backups, and keep no-op syncs from creating metadata-only commits.
 
 ## 0.1.1 - 2026-04-27
 
