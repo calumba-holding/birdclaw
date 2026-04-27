@@ -2,13 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
-## 0.1.2 - Unreleased
+## 0.2.0 - 2026-04-27
 
 ### Added
 
 - Add live likes and bookmarks sync through `xurl`/`bird`, local search filters, archive import support, and dedicated Likes/Bookmarks web views.
 - Add Git-friendly JSONL backup sync, export, import, validation, and stale-aware auto-sync for rebuilding or merging the local SQLite store from text shards across machines.
 - Add a scheduled bookmark sync job with launchd installation, JSONL audit logging, overlap locking, and automatic Git backup sync after each refresh.
+- Add launchd env-file support so scheduled bookmark sync can source `bird` credentials without storing secrets in the plist.
 
 ### Changed
 
