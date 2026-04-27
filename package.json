@@ -1,6 +1,6 @@
 {
 	"name": "birdclaw",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Local-first X workspace for archives, DMs, mentions, and moderation",
 	"homepage": "https://github.com/steipete/birdclaw#readme",
 	"license": "MIT",

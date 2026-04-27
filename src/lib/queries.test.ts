@@ -165,6 +165,69 @@ describe("birdclaw queries", () => {
 		expect(items[0]?.accountId).toBe("acct_studio");
 	});
 
+	it("hides low-quality timeline noise for summary queries", () => {
+		setupTempHome();
+		const db = getNativeDb();
+		const insertTweet = db.prepare(`
+      insert into tweets (
+        id, account_id, author_profile_id, kind, text, created_at,
+        is_replied, reply_to_id, like_count, media_count, bookmarked, liked,
+        entities_json, media_json, quoted_tweet_id
+      ) values (?, 'acct_primary', 'profile_me', 'home', ?, ?, 0, null, ?, ?, 0, 0, '{}', '[]', null)
+    `);
+
+		insertTweet.run(
+			"tweet_low_reply",
+			"@sam yes",
+			"2026-03-08T13:00:00.000Z",
+			0,
+			0,
+		);
+		insertTweet.run(
+			"tweet_low_link",
+			"Wow https://t.co/noise",
+			"2026-03-08T13:01:00.000Z",
+			1,
+			0,
+		);
+		insertTweet.run(
+			"tweet_low_rt",
+			"RT @someone: borrowed context",
+			"2026-03-08T13:02:00.000Z",
+			120,
+			0,
+		);
+		insertTweet.run(
+			"tweet_good_short",
+			"OMG PC GUY",
+			"2026-03-08T13:03:00.000Z",
+			100,
+			0,
+		);
+		insertTweet.run(
+			"tweet_good_media",
+			"https://t.co/screenshot",
+			"2026-03-08T13:04:00.000Z",
+			0,
+			1,
+		);
+
+		const items = listTimelineItems({
+			resource: "home",
+			account: "acct_primary",
+			since: "2026-03-08T13:00:00.000Z",
+			until: "2026-03-08T14:00:00.000Z",
+			includeReplies: false,
+			qualityFilter: "summary",
+			limit: 20,
+		});
+
+		expect(items.map((item) => item.id)).toEqual([
+			"tweet_good_media",
+			"tweet_good_short",
+		]);
+	});
+
 	it("hydrates rich tweet entities, media, reply context, and quote context", () => {
 		setupTempHome();
 

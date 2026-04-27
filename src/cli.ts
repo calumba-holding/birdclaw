@@ -131,10 +131,14 @@ const searchCommand = program
 	.description("Search local data");
 
 searchCommand
-	.command("tweets <query>")
+	.command("tweets [query]")
 	.option("--resource <resource>", "home or mentions", "home")
 	.option("--replied", "Only replied items")
 	.option("--unreplied", "Only unreplied items")
+	.option("--since <date>", "Include tweets created at or after this date")
+	.option("--until <date>", "Include tweets created before this date")
+	.option("--originals-only", "Exclude authored replies that start with @")
+	.option("--hide-low-quality", "Hide RTs, tiny replies, and link-only noise")
 	.option("--limit <n>", "Limit results", "20")
 	.action((query, options) => {
 		const replyFilter = options.replied
@@ -146,6 +150,10 @@ searchCommand
 			resource: options.resource === "mentions" ? "mentions" : "home",
 			search: query,
 			replyFilter,
+			since: options.since,
+			until: options.until,
+			includeReplies: !options.originalsOnly,
+			qualityFilter: options.hideLowQuality ? "summary" : "all",
 			limit: Number(options.limit),
 		});
 		print(items, program.opts().json ?? false);

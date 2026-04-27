@@ -12,6 +12,7 @@ import type {
 	QueryEnvelope,
 	QueryResponse,
 	ReplyFilter,
+	TimelineQualityFilter,
 	TimelineItem,
 	TimelineQuery,
 	TweetEntities,
@@ -124,6 +125,36 @@ function buildReplyClause(replyFilter: ReplyFilter) {
 	return "";
 }
 
+function buildTimelineQualityClause(qualityFilter: TimelineQualityFilter) {
+	if (qualityFilter === "all") {
+		return "";
+	}
+
+	return `
+    and not (
+      t.text like 'RT @%'
+      or (
+        t.like_count < 50
+        and (
+          (
+            length(trim(replace(t.text, 'https://t.co/', ''))) < 16
+            and t.media_count = 0
+          )
+          or (
+            t.text like '@%'
+            and length(trim(t.text)) < 60
+          )
+          or (
+            t.text glob '*https://t.co/*'
+            and t.media_count = 0
+            and length(trim(replace(t.text, 'https://t.co/', ''))) < 45
+          )
+        )
+      )
+    )
+  `;
+}
+
 export async function getQueryEnvelope(): Promise<QueryEnvelope> {
 	const db = getDb();
 	const counts = await Promise.all([
@@ -182,6 +213,10 @@ export function listTimelineItems({
 	account,
 	search,
 	replyFilter = "all",
+	since,
+	until,
+	includeReplies = true,
+	qualityFilter = "all",
 	limit = 18,
 }: TimelineQuery): TimelineItem[] {
 	const db = getNativeDb();
@@ -199,6 +234,21 @@ export function listTimelineItems({
 		"is_replied",
 		"t.is_replied",
 	);
+	where += buildTimelineQualityClause(qualityFilter);
+
+	if (!includeReplies) {
+		where += " and t.text not like '@%'";
+	}
+
+	if (since?.trim()) {
+		where += " and t.created_at >= ?";
+		params.push(since.trim());
+	}
+
+	if (until?.trim()) {
+		where += " and t.created_at < ?";
+		params.push(until.trim());
+	}
 
 	if (search?.trim()) {
 		join += " join tweets_fts fts on fts.tweet_id = t.id ";

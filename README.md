@@ -179,6 +179,7 @@ pnpm cli blocks import ~/triage/blocklist.txt --account acct_primary --json
 ```bash
 pnpm cli search tweets "local-first" --json
 pnpm cli search tweets "sync engine" --limit 20 --json
+pnpm cli search tweets --since 2020-01-01 --until 2021-01-01 --originals-only --hide-low-quality --limit 500 --json
 ```
 
 ### Export mentions for agents

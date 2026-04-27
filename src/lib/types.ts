@@ -2,6 +2,7 @@ export type ResourceKind = "home" | "mentions" | "dms";
 export type InboxKind = "mixed" | "mentions" | "dms";
 
 export type ReplyFilter = "all" | "replied" | "unreplied";
+export type TimelineQualityFilter = "all" | "summary";
 
 export interface AccountRecord {
 	id: string;
@@ -139,6 +140,10 @@ export interface TimelineQuery {
 	account?: string;
 	search?: string;
 	replyFilter?: ReplyFilter;
+	since?: string;
+	until?: string;
+	includeReplies?: boolean;
+	qualityFilter?: TimelineQualityFilter;
 	limit?: number;
 }
 

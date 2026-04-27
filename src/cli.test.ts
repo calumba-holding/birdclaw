@@ -309,7 +309,7 @@ describe("cli", () => {
 
 		await runCli(["node", "birdclaw", "--version"]);
 
-		expect(stdoutWriteMock).toHaveBeenCalledWith("0.1.0\n");
+		expect(stdoutWriteMock).toHaveBeenCalledWith("0.1.1\n");
 		expect(exitMock).toHaveBeenCalledWith(0);
 		stdoutWriteMock.mockRestore();
 	});
@@ -420,6 +420,12 @@ describe("cli", () => {
 			"--resource",
 			"mentions",
 			"--unreplied",
+			"--since",
+			"2020-01-01",
+			"--until",
+			"2021-01-01",
+			"--originals-only",
+			"--hide-low-quality",
 			"--limit",
 			"5",
 		]);
@@ -501,6 +507,10 @@ describe("cli", () => {
 			resource: "mentions",
 			search: "local",
 			replyFilter: "unreplied",
+			since: "2020-01-01",
+			until: "2021-01-01",
+			includeReplies: false,
+			qualityFilter: "summary",
 			limit: 5,
 		});
 		expect(listDmConversationsMock).toHaveBeenCalledWith({
@@ -592,6 +602,10 @@ describe("cli", () => {
 			resource: "home",
 			search: "default",
 			replyFilter: "all",
+			since: undefined,
+			until: undefined,
+			includeReplies: true,
+			qualityFilter: "all",
 			limit: 20,
 		});
 		expect(listDmConversationsMock).toHaveBeenCalledWith({

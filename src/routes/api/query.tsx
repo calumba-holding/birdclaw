@@ -1,6 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { queryResource } from "#/lib/queries";
-import type { ReplyFilter, ResourceKind } from "#/lib/types";
+import type {
+	ReplyFilter,
+	ResourceKind,
+	TimelineQualityFilter,
+} from "#/lib/types";
 
 function json(data: unknown) {
 	return new Response(JSON.stringify(data), {
@@ -23,6 +27,10 @@ function parseNumber(value: string | null) {
 	return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function parseQualityFilter(value: string | null): TimelineQualityFilter {
+	return value === "summary" ? "summary" : "all";
+}
+
 export const Route = createFileRoute("/api/query")({
 	server: {
 		handlers: {
@@ -34,6 +42,12 @@ export const Route = createFileRoute("/api/query")({
 					account: url.searchParams.get("account") ?? undefined,
 					search: url.searchParams.get("search") ?? undefined,
 					replyFilter: parseReplyFilter(url.searchParams.get("replyFilter")),
+					since: url.searchParams.get("since") ?? undefined,
+					until: url.searchParams.get("until") ?? undefined,
+					includeReplies: url.searchParams.get("originalsOnly") !== "true",
+					qualityFilter: parseQualityFilter(
+						url.searchParams.get("qualityFilter"),
+					),
 					limit: parseNumber(url.searchParams.get("limit")) ?? undefined,
 				};
 
