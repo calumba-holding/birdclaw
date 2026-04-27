@@ -25,6 +25,16 @@ birdclaw db stats --json
 sqlite3 ~/.birdclaw/birdclaw.sqlite "pragma quick_check;"
 ```
 
+## Picking the Right Approach
+
+Match the depth of read to the task:
+
+- **Single fact / one tweet lookup** → SQL probe is fine.
+- **Year vibe / theme summary** → CLI with `--originals-only --hide-low-quality`, full year, `--limit 20000`. One year at a time.
+- **Life summary, biography, "movie script of my life", multi-year arc** → CLI per year across the full archive range, `--originals-only --hide-low-quality`, `--limit 20000` per year. Expect to ingest **50k+ tweets** total. Do NOT shortcut this with a top-N `like_count desc` SQL query — that yields only viral peaks and misses the everyday texture, recurring themes, and emotional tone the task needs.
+
+Top-liked SQL slices are for spot-checking, not for vibe work. A 30-row `order by like_count desc` is the wrong tool for any task that asks for arc, narrative, or "what was X like."
+
 ## Year Analysis
 
 For annual summaries, compare raw counts against summary-quality originals:
