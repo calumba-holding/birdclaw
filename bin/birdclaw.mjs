@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-const tsxCli = join(packageRoot, "node_modules", "tsx", "dist", "cli.mjs");
+const require = createRequire(import.meta.url);
+const tsxCli = require.resolve("tsx/cli");
 const birdclawCli = join(packageRoot, "src", "cli.ts");
 
 const result = spawnSync(
