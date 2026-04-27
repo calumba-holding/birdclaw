@@ -317,13 +317,13 @@ export async function listMentionsViaXurl({
 		if (username) {
 			const [user] = await lookupUsersByHandles([username]);
 			if (!user?.id) {
-				throw new Error(`Could not resolve X user id for @${username}`);
+				throw new Error(`Could not resolve Twitter user id for @${username}`);
 			}
 			resolvedUserId = String(user.id);
 		} else {
 			const user = await lookupAuthenticatedUser();
 			if (!user?.id) {
-				throw new Error("Could not resolve authenticated X user id");
+				throw new Error("Could not resolve authenticated Twitter user id");
 			}
 			resolvedUserId = String(user.id);
 		}
@@ -376,13 +376,13 @@ async function listTimelineCollectionViaXurl({
 		if (username) {
 			const [user] = await lookupUsersByHandles([username]);
 			if (!user?.id) {
-				throw new Error(`Could not resolve X user id for @${username}`);
+				throw new Error(`Could not resolve Twitter user id for @${username}`);
 			}
 			resolvedUserId = String(user.id);
 		} else {
 			const user = await lookupAuthenticatedUser();
 			if (!user?.id) {
-				throw new Error("Could not resolve authenticated X user id");
+				throw new Error("Could not resolve authenticated Twitter user id");
 			}
 			resolvedUserId = String(user.id);
 		}

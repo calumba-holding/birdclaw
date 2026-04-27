@@ -248,7 +248,7 @@ async function fetchXurlCollection({
 	if (!resolvedUserId) {
 		const [accountUser] = await lookupUsersByHandles([username]);
 		if (!accountUser?.id) {
-			throw new Error(`Could not resolve X user id for @${username}`);
+			throw new Error(`Could not resolve Twitter user id for @${username}`);
 		}
 		resolvedUserId = String(accountUser.id);
 	}

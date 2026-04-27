@@ -1,12 +1,12 @@
-# birdclaw 🪶 — Local X memory in SQLite: archives, DMs, likes, bookmarks
+# birdclaw 🪶 — Local Twitter memory in SQLite: archives, DMs, likes, bookmarks
 
-`birdclaw` is a local-first X workspace: archive import, cached live reads, focused triage, and reply flows in one local web app + CLI. Built by [@steipete](https://github.com/steipete/).
+`birdclaw` is a local-first Twitter workspace: archive import, cached live reads, focused triage, and reply flows in one local web app + CLI. Built by [@steipete](https://github.com/steipete/).
 
 Status: WIP. Real and usable. Not done. Expect schema churn, transport gaps, and rough edges while the core settles.
 
 ## What It Does
 
-- keeps your X data in local SQLite
+- keeps your Twitter data in local SQLite
 - stores media and avatar cache under `~/.birdclaw`
 - imports archives when you have them
 - still works when you do not
@@ -24,7 +24,7 @@ Status: WIP. Real and usable. Not done. Expect schema churn, transport gaps, and
 - archive import for bookmark exports when present
 - live likes and bookmarks sync through `xurl` or `bird`
 - Git-friendly text backups with yearly tweet shards and per-conversation DM shards
-- profile hydration from live X metadata
+- profile hydration from live Twitter metadata
 - local avatar cache
 - local media cache root under `~/.birdclaw`
 
@@ -61,7 +61,7 @@ Status: WIP. Real and usable. Not done. Expect schema churn, transport gaps, and
 - import batch blocklists in one call
 - add / remove local mutes
 - sync remote blocks through `xurl` when available
-- fall back to the X web cookie session when OAuth2 block writes are rejected
+- fall back to the Twitter web cookie session when OAuth2 block writes are rejected
 
 ### Safety
 
@@ -82,7 +82,7 @@ If you need polished product-grade sync parity today, this is not there yet.
 
 ## Screens
 
-- `Home`: read and reply without fighting the main X timeline
+- `Home`: read and reply without fighting the main Twitter timeline
 - `Mentions`: work the reply queue with clean filters
 - `Likes` / `Bookmarks`: revisit saved posts from archive or live sync
 - `DMs`: triage by sender context, follower count, and influence
@@ -295,7 +295,7 @@ Notes:
 - `ban` / `unban` accept `--transport auto|bird|xurl`
 - `auto` tries `bird` first, then falls back to `xurl` when bird fails
 - forced `xurl` writes still verify through `bird status` before sqlite changes
-- X still rejects pure OAuth2 block writes, so `auto` is the safe default for block/unblock
+- Twitter still rejects pure OAuth2 block writes, so `auto` is the safe default for block/unblock
 - `blocks import` accepts newline-delimited blocklists with comments and markdown bullets
 - `blocks sync` is for slow/manual remote reconciliation; not for a hot cron loop
 - `blocks record` stores a known-good remote block locally without issuing another live write
@@ -432,7 +432,7 @@ tail -n 1 ~/.birdclaw/audit/bookmarks-sync.jsonl | jq .
 ## Typical Workflow
 
 1. import your archive if you have one
-2. hydrate imported profiles from live X metadata
+2. hydrate imported profiles from live Twitter metadata
 3. use `Home` for reading
 4. use `Mentions` for reply triage
 5. when one account feels borderline, inspect `profiles replies`

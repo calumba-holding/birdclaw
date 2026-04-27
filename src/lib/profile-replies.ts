@@ -16,7 +16,7 @@ export async function inspectProfileReplies(
 ): Promise<ProfileRepliesResponse> {
 	const resolved = await resolveProfile(query);
 	if (!resolved.externalUserId) {
-		throw new Error(`Profile has no external X user id: ${query}`);
+		throw new Error(`Profile has no external Twitter user id: ${query}`);
 	}
 
 	const timeline = await listUserTweets(resolved.externalUserId, {

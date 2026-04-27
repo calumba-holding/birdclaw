@@ -143,7 +143,7 @@ describe("blocks route", () => {
 			await screen.findByText(/synced 1 remote blocks/i),
 		).toBeInTheDocument();
 		fireEvent.change(
-			screen.getByPlaceholderText("Handle, name, bio, or X URL"),
+			screen.getByPlaceholderText("Handle, name, bio, or Twitter URL"),
 			{
 				target: { value: "@sam" },
 			},
@@ -328,7 +328,7 @@ describe("blocks route", () => {
 			await screen.findByText("Synced 2 remote blocks"),
 		).toBeInTheDocument();
 		fireEvent.change(
-			screen.getByPlaceholderText("Handle, name, bio, or X URL"),
+			screen.getByPlaceholderText("Handle, name, bio, or Twitter URL"),
 			{
 				target: { value: "blocked" },
 			},

@@ -4,7 +4,7 @@ test("navigates across the primary surfaces", async ({ page }) => {
 	await page.goto("/");
 
 	await expect(
-		page.getByRole("heading", { name: "Quiet signal for X." }),
+		page.getByRole("heading", { name: "Quiet signal for Twitter." }),
 	).toBeVisible();
 	await expect(
 		page.getByRole("heading", {

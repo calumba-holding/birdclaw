@@ -126,7 +126,7 @@ describe("profile reply inspection", () => {
 		const { inspectProfileReplies } = await import("./profile-replies");
 
 		await expect(inspectProfileReplies("group")).rejects.toThrow(
-			"Profile has no external X user id: group",
+			"Profile has no external Twitter user id: group",
 		);
 		expect(listUserTweetsMock).not.toHaveBeenCalled();
 	});

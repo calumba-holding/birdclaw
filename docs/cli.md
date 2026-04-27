@@ -14,7 +14,7 @@ Designed with `create-cli` defaults:
 
 ## One-liner
 
-`birdclaw` imports, syncs, searches, and operates on a local X archive.
+`birdclaw` imports, syncs, searches, and operates on a local Twitter archive.
 
 ## Usage
 
@@ -429,9 +429,9 @@ Flags:
 ### `blocks add <handle-or-id>`
 
 - add a local block entry for one account
-- accepts handle, `@handle`, X URL, local profile id, or numeric X user id
+- accepts handle, `@handle`, Twitter URL, local profile id, or numeric Twitter user id
 - attempts live block transport via `xurl` when resolvable
-- falls back to the X web cookie session if `xurl` is rejected for OAuth2 block writes
+- falls back to the Twitter web cookie session if `xurl` is rejected for OAuth2 block writes
 - still records the local block if live transport is unavailable
 
 Flags:
@@ -441,7 +441,7 @@ Flags:
 ### `blocks import <path>`
 
 - import a blocklist file in one call
-- reads newline-delimited handles, ids, or X URLs
+- reads newline-delimited handles, ids, or Twitter URLs
 - ignores blank lines and `#` comments
 - tolerates markdown bullets like `- @handle`
 - returns per-entry success/failure in `--json`
@@ -454,7 +454,7 @@ Flags:
 
 - remove a local block entry for one account
 - attempts live unblock transport via `xurl` when resolvable
-- falls back to the X web cookie session if `xurl` is rejected for OAuth2 block writes
+- falls back to the Twitter web cookie session if `xurl` is rejected for OAuth2 block writes
 
 Flags:
 
@@ -484,7 +484,7 @@ Flags:
 ### `mute <handle-or-id>`
 
 - add a local mute entry for one account
-- accepts handle, `@handle`, X URL, local profile id, or numeric X user id
+- accepts handle, `@handle`, Twitter URL, local profile id, or numeric Twitter user id
 - resolves remote targets via `bird user --json` before falling back to `xurl /2/users`
 - `--transport auto` tries `bird` first, then `xurl`
 - still records the local mute if live transport is unavailable

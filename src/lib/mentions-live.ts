@@ -307,7 +307,7 @@ async function fetchMentionsViaXurl({
 	const [accountUser] = await lookupUsersByHandles([resolvedAccount.username]);
 	if (!accountUser?.id) {
 		throw new Error(
-			`Could not resolve X user id for @${resolvedAccount.username}`,
+			`Could not resolve Twitter user id for @${resolvedAccount.username}`,
 		);
 	}
 

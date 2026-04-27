@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.2.1 - 2026-04-27
+
+### Changed
+
+- Use Twitter wording in public descriptions, docs, CLI help, and release notes.
+
 ## 0.2.0 - 2026-04-27
 
 ### Added
@@ -13,7 +19,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- Update the README tagline and package description for local X memory across archives, DMs, likes, bookmarks, and moderation.
+- Update the README tagline and package description for local Twitter memory across archives, DMs, likes, bookmarks, and moderation.
 - Refresh dependencies, including `jsdom` 29.1.0.
 - Hide reply state and reply actions in saved likes/bookmarks web lanes.
 - Shard backup DMs by year and route unknown tweet dates to `data/tweets/unknown.jsonl` so Git backups stay compact and avoid bogus 1970 files.
@@ -21,7 +27,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- Fix live bookmark sync to use stored X user ids, force OAuth2 for `xurl` collection reads, and tolerate large/current `bird` bookmark payloads.
+- Fix live bookmark sync to use stored Twitter user ids, force OAuth2 for `xurl` collection reads, and tolerate large/current `bird` bookmark payloads.
 - Fix fresh-machine backup sync so demo data is never exported into Git backups, and keep no-op syncs from creating metadata-only commits.
 
 ## 0.1.1 - 2026-04-27
@@ -38,7 +44,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- Add X web cookie fallback for block and unblock actions when the X API rejects OAuth2 block writes.
+- Add Twitter web cookie fallback for block and unblock actions when the Twitter API rejects OAuth2 block writes.
 - Add `profiles replies` so moderation triage can inspect a user's recent reply pattern before blocking.
 - Add `blocks import <path>` for one-shot blocklist application from a file.
 - Add paged `mentions export --mode xurl --all --max-pages <n>` so moderation loops can scan the full retrievable mentions window.

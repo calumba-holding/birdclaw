@@ -38,7 +38,7 @@ describe("AppNav", () => {
 			"nav-link-active",
 		);
 		expect(screen.getByRole("link", { name: "Blocks" })).toBeInTheDocument();
-		expect(screen.getByText("Quiet signal for X.")).toBeInTheDocument();
+		expect(screen.getByText("Quiet signal for Twitter.")).toBeInTheDocument();
 		expect(
 			screen.getByRole("button", { name: "System default" }),
 		).toBeInTheDocument();

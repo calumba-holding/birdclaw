@@ -275,7 +275,7 @@ describe("xurl transport wrapper", () => {
 		]);
 	});
 
-	it("lists liked and bookmarked tweets through raw X endpoints", async () => {
+	it("lists liked and bookmarked tweets through raw Twitter endpoints", async () => {
 		execFileAsyncMock
 			.mockResolvedValueOnce({
 				stdout: JSON.stringify({ data: [{ id: "25401953" }] }),

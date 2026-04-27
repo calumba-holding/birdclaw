@@ -6,14 +6,14 @@ Repo: `steipete/birdclaw`
 
 ## One-liner
 
-`birdclaw` is a local-first X/Twitter archive and operator console:
+`birdclaw` is a local-first Twitter archive and operator console:
 - import full account archives
 - auto-find archives on disk when present
 - work well without an archive by syncing everything possible and waiting through rate limits
 - sync tweets, likes, bookmarks, mentions, followers, following, and DMs
 - cache media locally
 - search all history fast, offline
-- provide an AI-sorted inbox so X is less chaotic
+- provide an AI-sorted inbox so Twitter is less chaotic
 - let the user read, draft, and reply from a local web app or CLI
 - maintain account-scoped block and mute lists with add/remove flows
 
@@ -41,7 +41,7 @@ Repo: `steipete/birdclaw`
 
 - multi-tenant SaaS
 - cloud-required backend
-- perfect parity with every X surface on day 1
+- perfect parity with every Twitter surface on day 1
 - custom mobile app in v1
 - heavy vector infra in v1
 
@@ -243,7 +243,7 @@ Both modes are first-class and must converge on the same canonical tables.
 
 ## Archive Discovery
 
-- on macOS, use Spotlight (`mdfind`) to search for likely X/Twitter archive zip files
+- on macOS, use Spotlight (`mdfind`) to search for likely Twitter archive zip files
 - reuse the Sweetistics-style heuristic set:
   - search `~/Downloads` first
   - then Spotlight in the user home directory

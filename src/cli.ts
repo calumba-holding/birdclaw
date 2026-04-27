@@ -85,7 +85,7 @@ async function autoSyncAfterWrite() {
 
 program
 	.name("birdclaw")
-	.description("Local-first X workspace")
+	.description("Local-first Twitter workspace")
 	.version(packageVersion.version ?? "0.0.0")
 	.option("--json", "Emit JSON output");
 
@@ -118,7 +118,7 @@ program
 
 program
 	.command("archive find")
-	.description("Find likely X/Twitter archives on disk")
+	.description("Find likely Twitter archives on disk")
 	.action(async () => {
 		const items = await findArchives();
 		print(items, program.opts().json ?? false);
@@ -130,7 +130,7 @@ const importCommand = program
 
 importCommand
 	.command("archive [archivePath]")
-	.description("Import an X/Twitter archive into the local SQLite store")
+	.description("Import a Twitter archive into the local SQLite store")
 	.action(async (archivePath) => {
 		let resolvedArchivePath = archivePath;
 		if (!resolvedArchivePath) {
@@ -151,7 +151,7 @@ importCommand
 
 importCommand
 	.command("hydrate-profiles")
-	.description("Backfill archive-imported profiles from live X metadata")
+	.description("Backfill archive-imported profiles from live Twitter metadata")
 	.action(async () => {
 		const result = await hydrateProfilesFromX();
 		await autoSyncAfterWrite();
@@ -323,7 +323,7 @@ const dmsCommand = program.command("dms").description("Direct messages");
 
 const syncCommand = program
 	.command("sync")
-	.description("Refresh live X collections into the local store");
+	.description("Refresh live Twitter collections into the local store");
 
 for (const kind of ["likes", "bookmarks"] as const) {
 	syncCommand

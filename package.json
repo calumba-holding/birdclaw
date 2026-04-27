@@ -1,7 +1,7 @@
 {
 	"name": "birdclaw",
-	"version": "0.2.0",
-	"description": "Local X memory in SQLite for archives, DMs, likes, bookmarks, and moderation",
+	"version": "0.2.1",
+	"description": "Local Twitter memory in SQLite for archives, DMs, likes, bookmarks, and moderation",
 	"homepage": "https://github.com/steipete/birdclaw#readme",
 	"license": "MIT",
 	"repository": {

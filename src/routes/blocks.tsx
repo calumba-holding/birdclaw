@@ -240,7 +240,7 @@ function BlocksRoute() {
 						className={cx(textFieldClass, textFieldWideClass)}
 						disabled={!hasAccountId}
 						onChange={(event) => setSearch(event.target.value)}
-						placeholder="Handle, name, bio, or X URL"
+						placeholder="Handle, name, bio, or Twitter URL"
 						value={search}
 					/>
 					<button

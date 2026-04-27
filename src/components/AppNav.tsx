@@ -29,7 +29,7 @@ export function AppNav() {
 		<nav className={navClass}>
 			<div>
 				<p className={eyebrowClass}>birdclaw</p>
-				<h1 className={brandMarkClass}>Quiet signal for X.</h1>
+				<h1 className={brandMarkClass}>Quiet signal for Twitter.</h1>
 			</div>
 			<div className={navLinksClass}>
 				{links.map((link) => {

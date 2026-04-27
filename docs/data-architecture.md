@@ -102,7 +102,7 @@ SQLite only. Kysely schema in code, migrations checked into repo.
   - preferred transport
   - sync defaults
 - `profiles`
-  - X users/authors/participants
+  - Twitter users/authors/participants
   - keep bio, follower count, and lightweight influence fields queryable in canonical columns
   - DM surfaces should render sender bio and influence context from here without needing raw payload lookups
 - `blocks`
@@ -233,7 +233,7 @@ Principles:
 
 ### Inputs
 
-- Twitter/X export zip
+- Twitter export zip
 - extracted archive directory
 
 ### Supported archive slices in v1
@@ -423,7 +423,7 @@ birdclaw/
   - subprocess exec wrappers
   - GraphQL-focused reads/actions
 - `transport-official`
-  - direct X API client
+  - direct Twitter API client
 - `transport-xweb`
   - optional cookie/graphql mode
 - `server`
