@@ -11,6 +11,8 @@ import { importArchive } from "#/lib/archive-import";
 import {
 	exportBackup,
 	importBackup,
+	maybeAutoSyncBackup,
+	maybeAutoUpdateBackup,
 	syncBackup,
 	validateBackup,
 } from "#/lib/backup";
@@ -61,6 +63,20 @@ function resolveActionOptions(options: { transport?: string }) {
 	return {
 		transport: options.transport as ActionsTransport | undefined,
 	};
+}
+
+async function autoUpdateBeforeRead() {
+	const result = await maybeAutoUpdateBackup();
+	if (!result.ok) {
+		console.error(`birdclaw backup auto-sync failed: ${result.error}`);
+	}
+}
+
+async function autoSyncAfterWrite() {
+	const result = await maybeAutoSyncBackup();
+	if (!result.ok) {
+		console.error(`birdclaw backup sync failed: ${result.error}`);
+	}
 }
 
 program
@@ -125,6 +141,7 @@ importCommand
 		}
 
 		const result = await importArchive(resolvedArchivePath);
+		await autoSyncAfterWrite();
 		print(result, program.opts().json ?? false);
 	});
 
@@ -133,6 +150,7 @@ importCommand
 	.description("Backfill archive-imported profiles from live X metadata")
 	.action(async () => {
 		const result = await hydrateProfilesFromX();
+		await autoSyncAfterWrite();
 		print(result, program.opts().json ?? false);
 	});
 
@@ -152,7 +170,8 @@ searchCommand
 	.option("--liked", "Only liked tweets")
 	.option("--bookmarked", "Only bookmarked tweets")
 	.option("--limit <n>", "Limit results", "20")
-	.action((query, options) => {
+	.action(async (query, options) => {
+		await autoUpdateBeforeRead();
 		const replyFilter = options.replied
 			? "replied"
 			: options.unreplied
@@ -184,7 +203,8 @@ searchCommand
 	.option("--replied", "Only replied threads")
 	.option("--unreplied", "Only unreplied threads")
 	.option("--limit <n>", "Limit results", "20")
-	.action((query, options) => {
+	.action(async (query, options) => {
+		await autoUpdateBeforeRead();
 		const replyFilter = options.replied
 			? "replied"
 			: options.unreplied
@@ -232,6 +252,7 @@ mentionsCommand
 	)
 	.option("--limit <n>", "Limit results", "20")
 	.action(async (query, options) => {
+		await autoUpdateBeforeRead();
 		const replyFilter = options.replied
 			? "replied"
 			: options.unreplied
@@ -250,6 +271,7 @@ mentionsCommand
 				refresh: Boolean(options.refresh),
 				cacheTtlMs: Number(options.cacheTtl) * 1000,
 			});
+			await autoSyncAfterWrite();
 			print(payload, true);
 			return;
 		}
@@ -264,6 +286,7 @@ mentionsCommand
 				refresh: Boolean(options.refresh),
 				cacheTtlMs: Number(options.cacheTtl) * 1000,
 			});
+			await autoSyncAfterWrite();
 			print(payload, true);
 			return;
 		}
@@ -320,6 +343,7 @@ for (const kind of ["likes", "bookmarks"] as const) {
 				refresh: Boolean(options.refresh),
 				cacheTtlMs: Number(options.cacheTtl) * 1000,
 			});
+			await autoSyncAfterWrite();
 			print(result, true);
 		});
 }
@@ -351,6 +375,9 @@ dmsCommand
 				refresh: true,
 				cacheTtlMs: Number(options.cacheTtl) * 1000,
 			});
+			await autoSyncAfterWrite();
+		} else {
+			await autoUpdateBeforeRead();
 		}
 		const items = listDmConversations({
 			account: options.account,
@@ -388,6 +415,7 @@ dmsCommand
 			refresh: Boolean(options.refresh),
 			cacheTtlMs: Number(options.cacheTtl) * 1000,
 		});
+		await autoSyncAfterWrite();
 		print(result, true);
 	});
 
@@ -408,6 +436,7 @@ composeCommand
 	.option("--account <accountId>", "Account id", "acct_primary")
 	.action(async (text, options) => {
 		const result = await createPost(options.account, text);
+		await autoSyncAfterWrite();
 		print(result, program.opts().json ?? false);
 	});
 
@@ -416,6 +445,7 @@ composeCommand
 	.option("--account <accountId>", "Account id", "acct_primary")
 	.action(async (tweetId, text, options) => {
 		const result = await createTweetReply(options.account, tweetId, text);
+		await autoSyncAfterWrite();
 		print(result, program.opts().json ?? false);
 	});
 
@@ -424,6 +454,7 @@ composeCommand
 	.description("Reply inside an existing DM conversation")
 	.action(async (conversationId, text) => {
 		const result = await createDmReply(conversationId, text);
+		await autoSyncAfterWrite();
 		print(result, program.opts().json ?? false);
 	});
 
@@ -435,6 +466,7 @@ program
 	.option("--score", "Score top items with OpenAI before listing")
 	.option("--limit <n>", "Limit results", "20")
 	.action(async (options) => {
+		await autoUpdateBeforeRead();
 		const kind =
 			options.kind === "mentions" || options.kind === "dms"
 				? options.kind
@@ -444,6 +476,7 @@ program
 				kind,
 				limit: Number(options.limit),
 			});
+			await autoSyncAfterWrite();
 		}
 		print(
 			listInboxItems({
@@ -460,6 +493,7 @@ program
 	.command("db stats")
 	.description("Show local storage and dataset stats")
 	.action(async () => {
+		await autoUpdateBeforeRead();
 		const meta = await getQueryEnvelope();
 		const paths = getBirdclawPaths();
 		print(
@@ -546,7 +580,8 @@ backupCommand
 program
 	.command("serve")
 	.description("Run the local web app")
-	.action(() => {
+	.action(async () => {
+		await autoUpdateBeforeRead();
 		const child = spawn(
 			process.execPath,
 			["node_modules/vite/bin/vite.js", "dev", "--port", "3000"],

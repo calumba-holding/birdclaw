@@ -5,12 +5,15 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import type Database from "better-sqlite3";
+import { getBirdclawConfig } from "./config";
 import { getNativeDb } from "./db";
 
 const execFileAsync = promisify(execFile);
 const BACKUP_SCHEMA_VERSION = 1;
 const MANIFEST_PATH = "manifest.json";
 const DATA_DIR = "data";
+const AUTO_SYNC_CACHE_KEY = "backup:auto-sync";
+const DEFAULT_STALE_AFTER_SECONDS = 15 * 60;
 
 type JsonValue =
 	| null
@@ -69,6 +72,18 @@ export interface BackupSyncResult {
 	exportResult: BackupExportResult;
 }
 
+export interface BackupAutoUpdateResult {
+	ok: boolean;
+	enabled: boolean;
+	skipped: boolean;
+	reason?: string;
+	repoPath?: string;
+	remote?: string;
+	pulled?: boolean;
+	imported?: boolean;
+	error?: string;
+}
+
 export interface BackupValidationResult {
 	ok: boolean;
 	repoPath: string;
@@ -124,14 +139,10 @@ function yearFromTimestamp(value: unknown) {
 		return "unknown";
 	}
 	const match = /^(\d{4})/.exec(value);
-	return match ? match[1] : "unknown";
-}
-
-function encodePathSegment(value: string) {
-	return encodeURIComponent(value).replace(
-		/[!'()*]/g,
-		(char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
-	);
+	if (!match || match[1] === "1970") {
+		return "unknown";
+	}
+	return match[1];
 }
 
 function rowsForQuery(
@@ -312,15 +323,9 @@ function buildShards(db: Database.Database) {
 				break;
 			case "dm_messages":
 				for (const row of rowSet.rows) {
-					const conversationId =
-						typeof row.conversation_id === "string"
-							? row.conversation_id
-							: "unknown";
 					addRows(
 						shards,
-						`data/dms/${encodePathSegment(conversationId)}/${yearFromTimestamp(
-							row.created_at,
-						)}.jsonl`,
+						`data/dms/${yearFromTimestamp(row.created_at)}.jsonl`,
 						[row],
 					);
 				}
@@ -406,6 +411,24 @@ async function ensureBackupReadme(repoPath: string) {
 		`# Birdclaw Store
 
 Private text backup for Birdclaw data. The committed files are canonical JSONL shards that can rebuild the local SQLite index.
+
+## Layout
+
+\`\`\`text
+manifest.json
+data/accounts.jsonl
+data/profiles.jsonl
+data/tweets/YYYY.jsonl
+data/tweets/unknown.jsonl
+data/collections/likes.jsonl
+data/collections/bookmarks.jsonl
+data/dms/conversations.jsonl
+data/dms/YYYY.jsonl
+data/moderation/blocks.jsonl
+data/moderation/mutes.jsonl
+\`\`\`
+
+Tweets are sharded by creation year. Collection-only tweets whose creation date is unknown live in \`data/tweets/unknown.jsonl\`. DMs are sharded by year and keep \`conversation_id\` in each row.
 
 Never commit live tokens, browser cookies, raw SQLite WAL/SHM sidecars, or temporary cache files here.
 `,
@@ -751,37 +774,38 @@ function insertRows(
 	}
 }
 
-function replaceFtsRows(
+function readFtsIds(
 	db: Database.Database,
 	tableName: "tweets_fts" | "dm_fts",
 	idColumn: "tweet_id" | "message_id",
-	id: JsonValue | undefined,
-	text: JsonValue | undefined,
 ) {
-	if (typeof id !== "string") {
-		return;
-	}
-	db.prepare(`delete from ${tableName} where ${idColumn} = ?`).run(id);
-	db.prepare(`insert into ${tableName} (${idColumn}, text) values (?, ?)`).run(
-		id,
-		typeof text === "string" ? text : "",
-	);
+	const rows = db
+		.prepare(`select ${idColumn} as id from ${tableName}`)
+		.all() as { id: string }[];
+	return new Set(rows.map((row) => row.id));
 }
 
-function insertFtsRow(
+function insertFtsRows(
 	db: Database.Database,
 	tableName: "tweets_fts" | "dm_fts",
 	idColumn: "tweet_id" | "message_id",
-	id: JsonValue | undefined,
-	text: JsonValue | undefined,
+	rows: JsonRecord[],
+	idKey: string,
+	textKey: string,
+	existingIds = new Set<string>(),
 ) {
-	if (typeof id !== "string") {
-		return;
-	}
-	db.prepare(`insert into ${tableName} (${idColumn}, text) values (?, ?)`).run(
-		id,
-		typeof text === "string" ? text : "",
+	const statement = db.prepare(
+		`insert into ${tableName} (${idColumn}, text) values (?, ?)`,
 	);
+	for (const row of rows) {
+		const id = row[idKey];
+		if (typeof id !== "string" || existingIds.has(id)) {
+			continue;
+		}
+		const text = row[textKey];
+		statement.run(id, typeof text === "string" ? text : "");
+		existingIds.add(id);
+	}
 }
 
 function clearBackupImportData(db: Database.Database) {
@@ -860,6 +884,14 @@ export async function importBackup({
 		if (mode === "replace") {
 			clearBackupImportData(db);
 		}
+		const tweetFtsIds =
+			mode === "replace"
+				? new Set<string>()
+				: readFtsIds(db, "tweets_fts", "tweet_id");
+		const dmFtsIds =
+			mode === "replace"
+				? new Set<string>()
+				: readFtsIds(db, "dm_fts", "message_id");
 		insertRows(
 			db,
 			`
@@ -964,13 +996,15 @@ export async function importBackup({
 				"quoted_tweet_id",
 			],
 		);
-		for (const tweet of tweets) {
-			if (mode === "replace") {
-				insertFtsRow(db, "tweets_fts", "tweet_id", tweet.id, tweet.text);
-			} else {
-				replaceFtsRows(db, "tweets_fts", "tweet_id", tweet.id, tweet.text);
-			}
-		}
+		insertFtsRows(
+			db,
+			"tweets_fts",
+			"tweet_id",
+			tweets,
+			"id",
+			"text",
+			tweetFtsIds,
+		);
 		insertRows(
 			db,
 			`
@@ -1049,13 +1083,7 @@ export async function importBackup({
 				"media_count",
 			],
 		);
-		for (const message of messages) {
-			if (mode === "replace") {
-				insertFtsRow(db, "dm_fts", "message_id", message.id, message.text);
-			} else {
-				replaceFtsRows(db, "dm_fts", "message_id", message.id, message.text);
-			}
-		}
+		insertFtsRows(db, "dm_fts", "message_id", messages, "id", "text", dmFtsIds);
 		insertRows(
 			db,
 			`
@@ -1170,6 +1198,226 @@ export async function syncBackup({
 		...(importResult ? { importResult } : {}),
 		exportResult,
 	};
+}
+
+export async function updateBackupFromGit({
+	repoPath,
+	remote,
+	db = getNativeDb(),
+}: {
+	repoPath: string;
+	remote?: string;
+	db?: Database.Database;
+}): Promise<{
+	ok: true;
+	repoPath: string;
+	remote?: string;
+	pulled: boolean;
+	imported: boolean;
+	importResult?: BackupImportResult;
+}> {
+	const resolvedRepoPath = path.resolve(repoPath);
+	await ensureBackupGitRepo({ repoPath: resolvedRepoPath, remote });
+	const pulled = await pullBackupGitRepo(resolvedRepoPath);
+	const manifestExists = existsSync(path.join(resolvedRepoPath, MANIFEST_PATH));
+	const importResult = manifestExists
+		? await importBackup({
+				repoPath: resolvedRepoPath,
+				db,
+				mode: "merge",
+			})
+		: undefined;
+
+	return {
+		ok: true,
+		repoPath: resolvedRepoPath,
+		...(remote ? { remote } : {}),
+		pulled,
+		imported: Boolean(importResult),
+		...(importResult ? { importResult } : {}),
+	};
+}
+
+function readAutoSyncState(db: Database.Database) {
+	const row = db
+		.prepare("select value_json from sync_cache where cache_key = ?")
+		.get(AUTO_SYNC_CACHE_KEY) as { value_json: string } | undefined;
+	if (!row) {
+		return null;
+	}
+	try {
+		return JSON.parse(row.value_json) as {
+			checkedAt?: string;
+			ok?: boolean;
+			error?: string;
+		};
+	} catch {
+		return null;
+	}
+}
+
+function writeAutoSyncState(
+	db: Database.Database,
+	value: { checkedAt: string; ok: boolean; error?: string },
+) {
+	db.prepare(
+		`
+    insert into sync_cache (cache_key, value_json, updated_at)
+    values (?, ?, ?)
+    on conflict(cache_key) do update set
+      value_json = excluded.value_json,
+      updated_at = excluded.updated_at
+    `,
+	).run(AUTO_SYNC_CACHE_KEY, JSON.stringify(value), value.checkedAt);
+}
+
+function resolveAutoSyncConfig() {
+	const backup = getBirdclawConfig().backup;
+	if (!backup || backup.autoSync === false) {
+		return null;
+	}
+	const repoPath = backup.repoPath?.trim();
+	const remote = backup.remote?.trim();
+	if (!repoPath && !remote) {
+		return null;
+	}
+	const staleAfterSeconds =
+		typeof backup.staleAfterSeconds === "number" &&
+		Number.isFinite(backup.staleAfterSeconds) &&
+		backup.staleAfterSeconds >= 0
+			? Math.floor(backup.staleAfterSeconds)
+			: DEFAULT_STALE_AFTER_SECONDS;
+
+	return {
+		repoPath:
+			repoPath ||
+			path.join(process.env.HOME || ".", "Projects", "backup-birdclaw"),
+		remote,
+		staleAfterSeconds,
+	};
+}
+
+export async function maybeAutoUpdateBackup(
+	db?: Database.Database,
+): Promise<BackupAutoUpdateResult> {
+	if (process.env.BIRDCLAW_BACKUP_AUTO_SYNC === "0") {
+		return {
+			ok: true,
+			enabled: false,
+			skipped: true,
+			reason: "disabled by BIRDCLAW_BACKUP_AUTO_SYNC=0",
+		};
+	}
+	const config = resolveAutoSyncConfig();
+	if (!config) {
+		return {
+			ok: true,
+			enabled: false,
+			skipped: true,
+			reason: "backup auto-sync is not configured",
+		};
+	}
+
+	const database = db ?? getNativeDb();
+	const state = readAutoSyncState(database);
+	const checkedAt = state?.checkedAt ? new Date(state.checkedAt).getTime() : 0;
+	const ageMs = Date.now() - checkedAt;
+	if (ageMs >= 0 && ageMs < config.staleAfterSeconds * 1000) {
+		return {
+			ok: true,
+			enabled: true,
+			skipped: true,
+			reason: "backup auto-sync is fresh",
+			repoPath: config.repoPath,
+			...(config.remote ? { remote: config.remote } : {}),
+		};
+	}
+
+	const now = new Date().toISOString();
+	try {
+		const result = await updateBackupFromGit({
+			repoPath: config.repoPath,
+			remote: config.remote,
+			db: database,
+		});
+		writeAutoSyncState(database, { checkedAt: now, ok: true });
+		return {
+			ok: true,
+			enabled: true,
+			skipped: false,
+			repoPath: result.repoPath,
+			...(result.remote ? { remote: result.remote } : {}),
+			pulled: result.pulled,
+			imported: result.imported,
+		};
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		writeAutoSyncState(database, { checkedAt: now, ok: false, error: message });
+		return {
+			ok: false,
+			enabled: true,
+			skipped: false,
+			repoPath: config.repoPath,
+			...(config.remote ? { remote: config.remote } : {}),
+			error: message,
+		};
+	}
+}
+
+export async function maybeAutoSyncBackup(
+	db?: Database.Database,
+): Promise<BackupAutoUpdateResult> {
+	if (process.env.BIRDCLAW_BACKUP_AUTO_SYNC === "0") {
+		return {
+			ok: true,
+			enabled: false,
+			skipped: true,
+			reason: "disabled by BIRDCLAW_BACKUP_AUTO_SYNC=0",
+		};
+	}
+	const config = resolveAutoSyncConfig();
+	if (!config) {
+		return {
+			ok: true,
+			enabled: false,
+			skipped: true,
+			reason: "backup auto-sync is not configured",
+		};
+	}
+	const database = db ?? getNativeDb();
+	const now = new Date().toISOString();
+	try {
+		const result = await syncBackup({
+			repoPath: config.repoPath,
+			remote: config.remote,
+			db: database,
+		});
+		writeAutoSyncState(database, { checkedAt: now, ok: true });
+		return {
+			ok: true,
+			enabled: true,
+			skipped: false,
+			repoPath: result.repoPath,
+			...(result.remote ? { remote: result.remote } : {}),
+			pulled: result.pulled,
+			imported: result.imported,
+		};
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		writeAutoSyncState(database, {
+			checkedAt: now,
+			ok: false,
+			error: message,
+		});
+		return {
+			ok: false,
+			enabled: true,
+			skipped: false,
+			repoPath: config.repoPath,
+			...(config.remote ? { remote: config.remote } : {}),
+			error: message,
+		};
+	}
 }
 
 export async function validateBackup(

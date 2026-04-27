@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { maybeAutoUpdateBackup } from "#/lib/backup";
 import { queryResource } from "#/lib/queries";
 import type {
 	ReplyFilter,
@@ -34,7 +35,8 @@ function parseQualityFilter(value: string | null): TimelineQualityFilter {
 export const Route = createFileRoute("/api/query")({
 	server: {
 		handlers: {
-			GET: ({ request }) => {
+			GET: async ({ request }) => {
+				await maybeAutoUpdateBackup();
 				const url = new URL(request.url);
 				const resource = (url.searchParams.get("resource") ??
 					"home") as ResourceKind;

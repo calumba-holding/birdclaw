@@ -1,6 +1,12 @@
 // @vitest-environment node
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -8,6 +14,7 @@ import {
 	exportBackup,
 	getBackupDatabaseFingerprint,
 	importBackup,
+	maybeAutoUpdateBackup,
 	syncBackup,
 	validateBackup,
 } from "./backup";
@@ -63,17 +70,20 @@ function seedBackupFixture() {
       media_json, quoted_tweet_id
     ) values
       ('tweet_2024', 'acct_primary', 'profile_me', 'home', 'Shipping text backups', '2024-12-31T23:59:00.000Z', 0, null, 12, 0, 0, 0, '{"hashtags":[{"text":"backup"}]}', '[]', null),
-      ('tweet_2025', 'acct_primary', 'profile_friend', 'bookmark', 'Saved useful thing', '2025-01-02T08:00:00.000Z', 0, null, 5, 1, 1, 1, '{}', '[{"type":"photo"}]', 'tweet_quote');
+      ('tweet_2025', 'acct_primary', 'profile_friend', 'bookmark', 'Saved useful thing', '2025-01-02T08:00:00.000Z', 0, null, 5, 1, 1, 1, '{}', '[{"type":"photo"}]', 'tweet_quote'),
+      ('tweet_unknown_date', 'acct_primary', 'profile_friend', 'like', 'Unknown creation date like', '1970-01-01T00:00:00.000Z', 0, null, 1, 0, 0, 1, '{}', '[]', null);
 
     insert into tweet_collections (
       account_id, tweet_id, kind, collected_at, source, raw_json, updated_at
     ) values
       ('acct_primary', 'tweet_2025', 'bookmarks', '2025-01-02T09:00:00.000Z', 'archive', '{"bookmark":{"tweetId":"tweet_2025"}}', '2025-01-03T00:00:00.000Z'),
-      ('acct_primary', 'tweet_2025', 'likes', null, 'bird', '{"id":"tweet_2025"}', '2025-01-03T00:00:00.000Z');
+      ('acct_primary', 'tweet_2025', 'likes', null, 'bird', '{"id":"tweet_2025"}', '2025-01-03T00:00:00.000Z'),
+      ('acct_primary', 'tweet_unknown_date', 'likes', null, 'archive', '{"like":{"tweetId":"tweet_unknown_date"}}', '2025-01-03T00:00:00.000Z');
 
     insert into tweets_fts (tweet_id, text) values
       ('tweet_2024', 'Shipping text backups'),
-      ('tweet_2025', 'Saved useful thing');
+      ('tweet_2025', 'Saved useful thing'),
+      ('tweet_unknown_date', 'Unknown creation date like');
 
     insert into dm_conversations (
       id, account_id, participant_profile_id, title, last_message_at, unread_count, needs_reply
@@ -112,6 +122,7 @@ afterEach(() => {
 	resetDatabaseForTests();
 	resetBirdclawPathsForTests();
 	delete process.env.BIRDCLAW_HOME;
+	delete process.env.BIRDCLAW_CONFIG;
 	for (const dir of tempDirs.splice(0)) {
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -130,9 +141,9 @@ describe("text backup", () => {
 		expect(exported.manifest.counts).toMatchObject({
 			accounts: 1,
 			profiles: 2,
-			tweets: 2,
+			tweets: 3,
 			collections_bookmarks: 1,
-			collections_likes: 1,
+			collections_likes: 2,
 			dm_conversations: 1,
 			dm_messages: 2,
 			blocks: 1,
@@ -146,9 +157,10 @@ describe("text backup", () => {
 		expect(existsSync(path.join(repoPath, "data/tweets/2025.jsonl"))).toBe(
 			true,
 		);
-		expect(
-			existsSync(path.join(repoPath, "data/dms/dm%3Afriend/2025.jsonl")),
-		).toBe(true);
+		expect(existsSync(path.join(repoPath, "data/tweets/unknown.jsonl"))).toBe(
+			true,
+		);
+		expect(existsSync(path.join(repoPath, "data/dms/2025.jsonl"))).toBe(true);
 		expect(
 			readFileSync(path.join(repoPath, "data/tweets/2025.jsonl"), "utf8"),
 		).toContain('"bookmarked":1');
@@ -246,9 +258,73 @@ describe("text backup", () => {
 		expect(
 			getNativeDb()
 				.prepare(
-					"select count(*) as count from tweets where id in ('tweet_2024', 'tweet_2025')",
+					"select count(*) as count from tweets where id in ('tweet_2024', 'tweet_2025', 'tweet_unknown_date')",
 				)
 				.get(),
-		).toEqual({ count: 2 });
+		).toEqual({ count: 3 });
+	});
+
+	it("auto-updates from the configured backup repo only when stale", async () => {
+		const previousAutoSyncEnv = process.env.BIRDCLAW_BACKUP_AUTO_SYNC;
+		process.env.BIRDCLAW_BACKUP_AUTO_SYNC = "1";
+		const remotePath = path.join(makeTempDir("birdclaw-remote-"), "remote.git");
+		execFileSync("git", ["init", "--bare", remotePath]);
+
+		try {
+			process.env.BIRDCLAW_HOME = makeTempDir("birdclaw-auto-src-");
+			seedBackupFixture();
+			await syncBackup({
+				repoPath: makeTempDir("birdclaw-auto-push-"),
+				remote: remotePath,
+				message: "archive: auto sync seed",
+			});
+
+			resetDatabaseForTests();
+			resetBirdclawPathsForTests();
+			process.env.BIRDCLAW_HOME = makeTempDir("birdclaw-auto-dst-");
+			const repoPath = makeTempDir("birdclaw-auto-work-");
+			writeFileSync(
+				path.join(process.env.BIRDCLAW_HOME, "config.json"),
+				JSON.stringify({
+					backup: {
+						repoPath,
+						remote: remotePath,
+						autoSync: true,
+						staleAfterSeconds: 900,
+					},
+				}),
+			);
+
+			const first = await maybeAutoUpdateBackup();
+
+			expect(first).toMatchObject({
+				ok: true,
+				enabled: true,
+				skipped: false,
+				imported: true,
+			});
+			expect(
+				getNativeDb()
+					.prepare(
+						"select count(*) as count from tweets where id = 'tweet_2025'",
+					)
+					.get(),
+			).toEqual({ count: 1 });
+
+			const second = await maybeAutoUpdateBackup();
+
+			expect(second).toMatchObject({
+				ok: true,
+				enabled: true,
+				skipped: true,
+				reason: "backup auto-sync is fresh",
+			});
+		} finally {
+			if (previousAutoSyncEnv === undefined) {
+				delete process.env.BIRDCLAW_BACKUP_AUTO_SYNC;
+			} else {
+				process.env.BIRDCLAW_BACKUP_AUTO_SYNC = previousAutoSyncEnv;
+			}
+		}
 	});
 });

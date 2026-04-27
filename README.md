@@ -367,15 +367,16 @@ manifest.json
 data/accounts.jsonl
 data/profiles.jsonl
 data/tweets/YYYY.jsonl
+data/tweets/unknown.jsonl
 data/collections/likes.jsonl
 data/collections/bookmarks.jsonl
 data/dms/conversations.jsonl
-data/dms/<conversation-id>/YYYY.jsonl
+data/dms/YYYY.jsonl
 data/moderation/blocks.jsonl
 data/moderation/mutes.jsonl
 ```
 
-Tweets are sharded by year for human browsing and yearly analysis. DMs are sharded by conversation and year so private threads stay inspectable without one giant file. Likes and bookmarks are stored as collection edges in `data/collections` and mirrored into the timeline rows for current query compatibility.
+Tweets are sharded by year for human browsing and yearly analysis. Collection-only tweets whose real creation date is unknown go into `data/tweets/unknown.jsonl` instead of pretending they belong to 1970. DMs are sharded by year with `conversation_id` in each row; this keeps Git fast while preserving conversation membership. Likes and bookmarks are stored as collection edges in `data/collections` and mirrored into the timeline rows for current query compatibility.
 
 Use `backup sync` when the target is a private Git repo. It pulls first, merge-imports the remote backup into local SQLite, exports the local union back into text shards, commits, and pushes.
 
@@ -383,6 +384,21 @@ Use `backup sync` when the target is a private Git repo. It pulls first, merge-i
 pnpm cli backup sync --repo ~/Projects/backup-birdclaw --remote https://github.com/steipete/backup-birdclaw.git --json
 pnpm cli backup validate ~/Projects/backup-birdclaw --json
 ```
+
+Configure stale-aware backup reads in `~/.birdclaw/config.json`:
+
+```json
+{
+	"backup": {
+		"repoPath": "/Users/steipete/Projects/backup-birdclaw",
+		"remote": "https://github.com/steipete/backup-birdclaw.git",
+		"autoSync": true,
+		"staleAfterSeconds": 900
+	}
+}
+```
+
+Read paths such as CLI search, inbox, API status/query, and web startup pull + merge from Git only when the last backup check is stale. Data-changing commands run a full backup sync afterward when this config is enabled. Set `BIRDCLAW_BACKUP_AUTO_SYNC=0` to disable that behavior for one process.
 
 ## Typical Workflow
 

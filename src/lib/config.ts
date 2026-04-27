@@ -21,6 +21,12 @@ export interface BirdclawConfig {
 	actions?: {
 		transport?: ActionsTransport;
 	};
+	backup?: {
+		repoPath?: string;
+		remote?: string;
+		autoSync?: boolean;
+		staleAfterSeconds?: number;
+	};
 }
 
 let cachedPaths: BirdclawPaths | undefined;

@@ -7,13 +7,14 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - Add live likes and bookmarks sync through `xurl`/`bird`, local search filters, archive import support, and dedicated Likes/Bookmarks web views.
-- Add Git-friendly JSONL backup sync, export, import, and validation commands for rebuilding or merging the local SQLite store from text shards.
+- Add Git-friendly JSONL backup sync, export, import, validation, and stale-aware auto-sync for rebuilding or merging the local SQLite store from text shards across machines.
 
 ### Changed
 
 - Update the README tagline and package description for local X memory across archives, DMs, likes, bookmarks, and moderation.
 - Refresh dependencies, including `jsdom` 29.1.0.
 - Hide reply state and reply actions in saved likes/bookmarks web lanes.
+- Shard backup DMs by year and route unknown tweet dates to `data/tweets/unknown.jsonl` so Git backups stay compact and avoid bogus 1970 files.
 
 ### Fixed
 

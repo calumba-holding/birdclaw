@@ -148,10 +148,26 @@ birdclaw backup sync --repo ~/Projects/backup-birdclaw --remote https://github.c
 Shard contract:
 
 - tweets: `data/tweets/YYYY.jsonl`
+- unknown tweet dates: `data/tweets/unknown.jsonl`
 - collections: `data/collections/likes.jsonl`, `data/collections/bookmarks.jsonl`
-- DMs: `data/dms/conversations.jsonl` plus `data/dms/<conversation-id>/YYYY.jsonl`
+- DMs: `data/dms/conversations.jsonl` plus `data/dms/YYYY.jsonl`
 - moderation: `data/moderation/blocks.jsonl`, `data/moderation/mutes.jsonl`
 - no SQLite WAL/SHM, FTS shadow tables, or transient live cache rows
+
+Backup auto-sync config lives in `~/.birdclaw/config.json`:
+
+```json
+{
+	"backup": {
+		"repoPath": "/Users/steipete/Projects/backup-birdclaw",
+		"remote": "https://github.com/steipete/backup-birdclaw.git",
+		"autoSync": true,
+		"staleAfterSeconds": 900
+	}
+}
+```
+
+Read commands pull + merge only when the last backup check is stale. Data-changing commands run a full backup sync afterward. Set `BIRDCLAW_BACKUP_AUTO_SYNC=0` to disable backup auto-sync for one process.
 
 ### `backup import`
 
