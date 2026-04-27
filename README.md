@@ -417,6 +417,8 @@ On macOS, install the 3-hour LaunchAgent after choosing the Birdclaw executable 
 birdclaw --json jobs install-bookmarks-launchd --program /opt/homebrew/bin/birdclaw
 ```
 
+If the machine uses `bird` with browser cookies that are not available to launchd, write an export-only env file with mode `0600` and install with `--env-file ~/.config/bird/env.sh`. Birdclaw sources that file inside the scheduled process without storing the secrets in the plist.
+
 The LaunchAgent writes `~/Library/LaunchAgents/com.steipete.birdclaw.bookmarks-sync.plist`, runs at load, then every 10,800 seconds. It writes the audit log to `~/.birdclaw/audit/bookmarks-sync.jsonl` and stdout/stderr to `~/.birdclaw/logs/bookmarks-sync.*.log`. A lock file prevents overlapping runs and records an `already-running` skip when needed. The default job fetches up to 5 pages every 3 hours; pass `--all` if you want every retrievable page each run.
 
 Useful checks:

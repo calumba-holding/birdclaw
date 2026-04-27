@@ -263,6 +263,7 @@ tail -n 20 ~/.birdclaw/audit/bookmarks-sync.jsonl | jq .
 - runs `jobs sync-bookmarks` every 3 hours by default
 - uses `launchctl load -w` unless `--no-load` is passed
 - writes launchd stdout/stderr to `~/.birdclaw/logs/bookmarks-sync.*.log`
+- `--env-file <path>` sources an export-only shell env file inside the scheduled process, useful when `bird` needs `AUTH_TOKEN`/`CT0` outside an interactive browser session
 
 ```bash
 birdclaw --json jobs install-bookmarks-launchd --program /opt/homebrew/bin/birdclaw

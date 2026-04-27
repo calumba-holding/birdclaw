@@ -79,6 +79,7 @@ export interface BookmarkSyncLaunchAgentOptions {
 	refresh?: boolean;
 	cacheTtlSeconds?: number;
 	logPath?: string;
+	envFile?: string;
 	stdoutPath?: string;
 	stderrPath?: string;
 	launchAgentsDir?: string;
@@ -95,6 +96,7 @@ export interface BookmarkSyncLaunchAgentInstallResult {
 	stdoutPath: string;
 	stderrPath: string;
 	intervalSeconds: number;
+	envFile?: string;
 }
 
 function expandHome(input: string) {
@@ -293,6 +295,10 @@ function stringEntry(value: string) {
 	return `<string>${xmlEscape(value)}</string>`;
 }
 
+function shellQuote(value: string) {
+	return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
 function buildProgramArguments({
 	program = "birdclaw",
 	mode = "auto",
@@ -302,6 +308,7 @@ function buildProgramArguments({
 	refresh = true,
 	cacheTtlSeconds,
 	logPath,
+	envFile,
 }: BookmarkSyncLaunchAgentOptions) {
 	const args =
 		path.isAbsolute(program) || program.includes("/")
@@ -329,6 +336,19 @@ function buildProgramArguments({
 	}
 	if (cacheTtlSeconds !== undefined) {
 		args.push("--cache-ttl", String(cacheTtlSeconds));
+	}
+	if (envFile) {
+		const resolvedEnvFile = resolvePath(envFile);
+		return [
+			"/bin/bash",
+			"-lc",
+			[
+				"set -a",
+				`[ ! -f ${shellQuote(resolvedEnvFile)} ] || . ${shellQuote(resolvedEnvFile)}`,
+				"set +a",
+				`exec ${args.map(shellQuote).join(" ")}`,
+			].join("; "),
+		];
 	}
 	return args;
 }
@@ -381,6 +401,7 @@ export function buildBookmarkSyncLaunchAgentPlist(
 		label,
 		intervalSeconds,
 		logPath,
+		...(options.envFile ? { envFile: resolvePath(options.envFile) } : {}),
 		stdoutPath,
 		stderrPath,
 		programArguments,
@@ -420,5 +441,6 @@ export async function installBookmarkSyncLaunchAgent(
 		stdoutPath: agent.stdoutPath,
 		stderrPath: agent.stderrPath,
 		intervalSeconds: agent.intervalSeconds,
+		...(agent.envFile ? { envFile: agent.envFile } : {}),
 	};
 }

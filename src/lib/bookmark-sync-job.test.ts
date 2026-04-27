@@ -187,4 +187,26 @@ describe("bookmark sync job", () => {
 		expect(execFileAsyncMock).not.toHaveBeenCalled();
 		expect(getNativeDb({ seedDemoData: false })).toBeTruthy();
 	});
+
+	it("can source an env file before running the launchd command", () => {
+		const agent = buildBookmarkSyncLaunchAgentPlist({
+			program: "/opt/homebrew/bin/birdclaw",
+			envFile: "~/private bird/env.sh",
+			mode: "bird",
+			logPath: "~/bird audit/bookmarks.jsonl",
+		});
+
+		expect(agent.envFile).toBe(path.join(os.homedir(), "private bird/env.sh"));
+		expect(agent.programArguments).toHaveLength(3);
+		expect(agent.programArguments[0]).toBe("/bin/bash");
+		expect(agent.programArguments[1]).toBe("-lc");
+		expect(agent.programArguments[2]).toContain(
+			`. '${path.join(os.homedir(), "private bird/env.sh")}'`,
+		);
+		expect(agent.programArguments[2]).toContain(
+			"exec '/opt/homebrew/bin/birdclaw' '--json' 'jobs' 'sync-bookmarks'",
+		);
+		expect(agent.programArguments[2]).toContain("'--mode' 'bird'");
+		expect(agent.plist).toContain("private bird/env.sh");
+	});
 });

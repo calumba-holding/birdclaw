@@ -397,6 +397,7 @@ jobsCommand
 	.option("--cache-ttl <seconds>", "Live-cache freshness window", "120")
 	.option("--no-refresh", "Allow live-cache reuse")
 	.option("--log <path>", "Audit JSONL path")
+	.option("--env-file <path>", "Shell env file to source before running")
 	.option("--stdout <path>", "launchd stdout path")
 	.option("--stderr <path>", "launchd stderr path")
 	.option("--launch-agents-dir <path>", "LaunchAgents directory")
@@ -413,6 +414,7 @@ jobsCommand
 			refresh: options.refresh,
 			cacheTtlSeconds: Number(options.cacheTtl),
 			logPath: options.log,
+			envFile: options.envFile,
 			stdoutPath: options.stdout,
 			stderrPath: options.stderr,
 			launchAgentsDir: options.launchAgentsDir,
