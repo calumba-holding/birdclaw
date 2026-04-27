@@ -116,4 +116,22 @@ describe("InboxCard", () => {
 			"/mentions",
 		);
 	});
+
+	it("labels resolved items and closes an open reply composer", () => {
+		const onReplyToggle = vi.fn();
+		render(
+			<InboxCard
+				isReplying
+				item={{ ...item, needsReply: false }}
+				onReplyChange={vi.fn()}
+				onReplySend={vi.fn()}
+				onReplyToggle={onReplyToggle}
+				replyDraft=""
+			/>,
+		);
+
+		expect(screen.getByText("resolved")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "Close reply" }));
+		expect(onReplyToggle).toHaveBeenCalled();
+	});
 });

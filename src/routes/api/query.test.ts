@@ -1,11 +1,15 @@
 // @vitest-environment node
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getRouteHandler } from "#/test/route-handlers";
 
 const queryResourceMock = vi.fn();
+const maybeAutoUpdateBackupMock = vi.fn();
 
 vi.mock("#/lib/queries", () => ({
 	queryResource: (...args: unknown[]) => queryResourceMock(...args),
+}));
+vi.mock("#/lib/backup", () => ({
+	maybeAutoUpdateBackup: () => maybeAutoUpdateBackupMock(),
 }));
 
 import { Route } from "./query";
@@ -13,6 +17,12 @@ import { Route } from "./query";
 const GET = getRouteHandler(Route, "GET");
 
 describe("api query route", () => {
+	beforeEach(() => {
+		queryResourceMock.mockReset();
+		maybeAutoUpdateBackupMock.mockReset();
+		maybeAutoUpdateBackupMock.mockResolvedValue({ skipped: true });
+	});
+
 	it("parses dm filters", async () => {
 		queryResourceMock.mockReturnValue({ resource: "dms", items: [] });
 		const response = await GET({
@@ -69,6 +79,21 @@ describe("api query route", () => {
 				maxFollowers: 33,
 				maxInfluenceScore: undefined,
 				sort: "recent",
+			}),
+		);
+	});
+
+	it("defaults to home when resource is omitted", async () => {
+		queryResourceMock.mockReturnValue({ resource: "home", items: [] });
+
+		await GET({
+			request: new Request("http://localhost/api/query"),
+		});
+
+		expect(queryResourceMock).toHaveBeenCalledWith(
+			"home",
+			expect.objectContaining({
+				resource: "home",
 			}),
 		);
 	});

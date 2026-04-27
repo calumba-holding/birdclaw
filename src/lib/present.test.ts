@@ -13,5 +13,6 @@ describe("present helpers", () => {
 		);
 		expect(getInitials("Sam Altman")).toBe("SA");
 		expect(getInitials("A")).toBe("A");
+		expect(getInitials(" Sam")).toBe("S");
 	});
 });

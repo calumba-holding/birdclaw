@@ -1,6 +1,12 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import type { ComponentType } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("#/components/TimelineCard", () => ({
 	TimelineCard: ({
@@ -23,6 +29,10 @@ const MentionsRoute = Route.options.component as ComponentType;
 describe("mentions route", () => {
 	beforeEach(() => {
 		vi.restoreAllMocks();
+	});
+
+	afterEach(() => {
+		cleanup();
 	});
 
 	it("loads mentions and sends a reply", async () => {
@@ -74,5 +84,59 @@ describe("mentions route", () => {
 				expect.objectContaining({ method: "POST" }),
 			);
 		});
+	});
+
+	it("trims search terms, changes reply filters, and ignores blank replies", async () => {
+		const queryUrls: URL[] = [];
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				if (url.endsWith("/api/status")) {
+					return new Response(
+						JSON.stringify({
+							stats: { home: 3, mentions: 1, dms: 4, needsReply: 2, inbox: 3 },
+							transport: { statusText: "local" },
+							accounts: [],
+							archives: [],
+						}),
+					);
+				}
+				if (url.includes("/api/query")) {
+					queryUrls.push(new URL(url));
+					return new Response(
+						JSON.stringify({
+							resource: "mentions",
+							items: [{ id: "mention_search", text: "@steipete signal" }],
+						}),
+					);
+				}
+				if (url.endsWith("/api/action") && init?.method === "POST") {
+					return new Response(JSON.stringify({ ok: true }));
+				}
+				throw new Error(`Unexpected fetch ${url}`);
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		vi.spyOn(window, "prompt").mockReturnValue("");
+
+		render(<MentionsRoute />);
+
+		expect(await screen.findByText("@steipete signal")).toBeInTheDocument();
+		fireEvent.change(screen.getByPlaceholderText("Search mentions"), {
+			target: { value: "  thread  " },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "all" }));
+
+		await waitFor(() => {
+			const queryUrl = queryUrls.at(-1);
+			expect(queryUrl?.searchParams.get("search")).toBe("thread");
+			expect(queryUrl?.searchParams.get("replyFilter")).toBe("all");
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: "@steipete signal" }));
+		expect(fetchMock).not.toHaveBeenCalledWith(
+			"/api/action",
+			expect.anything(),
+		);
 	});
 });

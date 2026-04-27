@@ -1,11 +1,15 @@
 // @vitest-environment node
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getRouteHandler } from "#/test/route-handlers";
 
 const listInboxItemsMock = vi.fn();
+const maybeAutoUpdateBackupMock = vi.fn();
 
 vi.mock("#/lib/inbox", () => ({
 	listInboxItems: (...args: unknown[]) => listInboxItemsMock(...args),
+}));
+vi.mock("#/lib/backup", () => ({
+	maybeAutoUpdateBackup: () => maybeAutoUpdateBackupMock(),
 }));
 
 import { Route } from "./inbox";
@@ -13,6 +17,12 @@ import { Route } from "./inbox";
 const GET = getRouteHandler(Route, "GET");
 
 describe("api inbox route", () => {
+	beforeEach(() => {
+		listInboxItemsMock.mockReset();
+		maybeAutoUpdateBackupMock.mockReset();
+		maybeAutoUpdateBackupMock.mockResolvedValue({ skipped: true });
+	});
+
 	it("parses inbox filters", async () => {
 		listInboxItemsMock.mockReturnValue({
 			items: [],
@@ -43,6 +53,24 @@ describe("api inbox route", () => {
 			request: new Request(
 				"http://localhost/api/inbox?kind=nope&minScore=bad&limit=nan",
 			),
+		});
+
+		expect(listInboxItemsMock).toHaveBeenCalledWith({
+			kind: "mixed",
+			minScore: undefined,
+			hideLowSignal: false,
+			limit: 20,
+		});
+	});
+
+	it("uses defaults when optional params are omitted", async () => {
+		listInboxItemsMock.mockReturnValue({
+			items: [],
+			stats: { total: 0, openai: 0, heuristic: 0 },
+		});
+
+		await GET({
+			request: new Request("http://localhost/api/inbox"),
 		});
 
 		expect(listInboxItemsMock).toHaveBeenCalledWith({
