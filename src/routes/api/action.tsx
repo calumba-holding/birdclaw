@@ -3,13 +3,23 @@ import { addBlock, removeBlock, syncBlocks } from "#/lib/blocks";
 import { scoreInbox } from "#/lib/inbox";
 import { addMute, removeMute } from "#/lib/mutes";
 import { createDmReply, createPost, createTweetReply } from "#/lib/queries";
+import type { ActionsTransport } from "#/lib/config";
 import type { InboxKind } from "#/lib/types";
+
+function parseActionsTransport(
+	value: string | undefined,
+): ActionsTransport | undefined {
+	return value === "auto" || value === "bird" || value === "xurl"
+		? value
+		: undefined;
+}
 
 export const Route = createFileRoute("/api/action")({
 	server: {
 		handlers: {
 			POST: async ({ request }) => {
 				const body = (await request.json()) as Record<string, string>;
+				const transport = parseActionsTransport(body.transport);
 				let result: unknown;
 
 				if (body.kind === "post") {
@@ -38,7 +48,7 @@ export const Route = createFileRoute("/api/action")({
 						body.accountId || "acct_primary",
 						body.query || "",
 						{
-							transport: body.transport,
+							transport,
 						},
 					);
 				} else if (body.kind === "unblockProfile") {
@@ -46,7 +56,7 @@ export const Route = createFileRoute("/api/action")({
 						body.accountId || "acct_primary",
 						body.query || "",
 						{
-							transport: body.transport,
+							transport,
 						},
 					);
 				} else if (body.kind === "muteProfile") {
@@ -54,7 +64,7 @@ export const Route = createFileRoute("/api/action")({
 						body.accountId || "acct_primary",
 						body.query || "",
 						{
-							transport: body.transport,
+							transport,
 						},
 					);
 				} else if (body.kind === "unmuteProfile") {
@@ -62,7 +72,7 @@ export const Route = createFileRoute("/api/action")({
 						body.accountId || "acct_primary",
 						body.query || "",
 						{
-							transport: body.transport,
+							transport,
 						},
 					);
 				} else if (body.kind === "syncBlocks") {

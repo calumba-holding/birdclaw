@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { getRouteHandler } from "#/test/route-handlers";
 
 const addBlockMock = vi.fn();
 const createPostMock = vi.fn();
@@ -34,6 +35,8 @@ vi.mock("#/lib/inbox", () => ({
 
 import { Route } from "./action";
 
+const POST = getRouteHandler(Route, "POST");
+
 describe("api action route", () => {
 	beforeEach(() => {
 		addBlockMock.mockReset();
@@ -49,7 +52,7 @@ describe("api action route", () => {
 
 	it("dispatches scoreInbox actions", async () => {
 		scoreInboxMock.mockResolvedValue({ ok: true });
-		const response = await Route.options.server.handlers.POST({
+		const response = await POST({
 			request: new Request("http://localhost/api/action", {
 				method: "POST",
 				body: JSON.stringify({
@@ -66,7 +69,7 @@ describe("api action route", () => {
 
 	it("dispatches post actions", async () => {
 		createPostMock.mockResolvedValue({ ok: true, tweetId: "tweet_007" });
-		const response = await Route.options.server.handlers.POST({
+		const response = await POST({
 			request: new Request("http://localhost/api/action", {
 				method: "POST",
 				body: JSON.stringify({
@@ -89,7 +92,7 @@ describe("api action route", () => {
 			ok: true,
 			replyId: "tweet_reply",
 		});
-		const response = await Route.options.server.handlers.POST({
+		const response = await POST({
 			request: new Request("http://localhost/api/action", {
 				method: "POST",
 				body: JSON.stringify({
@@ -111,7 +114,7 @@ describe("api action route", () => {
 
 	it("dispatches dm reply actions", async () => {
 		createDmReplyMock.mockResolvedValue({ ok: true, messageId: "msg_009" });
-		const response = await Route.options.server.handlers.POST({
+		const response = await POST({
 			request: new Request("http://localhost/api/action", {
 				method: "POST",
 				body: JSON.stringify({
@@ -133,7 +136,7 @@ describe("api action route", () => {
 		removeMuteMock.mockResolvedValue({ ok: true, action: "unmute" });
 		syncBlocksMock.mockResolvedValue({ ok: true, synced: true });
 
-		await Route.options.server.handlers.POST({
+		await POST({
 			request: new Request("http://localhost/api/action", {
 				method: "POST",
 				body: JSON.stringify({
@@ -143,7 +146,7 @@ describe("api action route", () => {
 				}),
 			}),
 		});
-		await Route.options.server.handlers.POST({
+		await POST({
 			request: new Request("http://localhost/api/action", {
 				method: "POST",
 				body: JSON.stringify({
@@ -153,7 +156,7 @@ describe("api action route", () => {
 				}),
 			}),
 		});
-		await Route.options.server.handlers.POST({
+		await POST({
 			request: new Request("http://localhost/api/action", {
 				method: "POST",
 				body: JSON.stringify({
@@ -164,7 +167,7 @@ describe("api action route", () => {
 				}),
 			}),
 		});
-		await Route.options.server.handlers.POST({
+		await POST({
 			request: new Request("http://localhost/api/action", {
 				method: "POST",
 				body: JSON.stringify({
@@ -175,7 +178,7 @@ describe("api action route", () => {
 				}),
 			}),
 		});
-		await Route.options.server.handlers.POST({
+		await POST({
 			request: new Request("http://localhost/api/action", {
 				method: "POST",
 				body: JSON.stringify({
@@ -201,7 +204,7 @@ describe("api action route", () => {
 	});
 
 	it("rejects unknown actions", async () => {
-		const response = await Route.options.server.handlers.POST({
+		const response = await POST({
 			request: new Request("http://localhost/api/action", {
 				method: "POST",
 				body: JSON.stringify({ kind: "wat" }),
@@ -214,7 +217,7 @@ describe("api action route", () => {
 	it("uses fallback values when post payload fields are missing", async () => {
 		createPostMock.mockResolvedValue({ ok: true });
 
-		await Route.options.server.handlers.POST({
+		await POST({
 			request: new Request("http://localhost/api/action", {
 				method: "POST",
 				body: JSON.stringify({ kind: "post" }),
@@ -227,7 +230,7 @@ describe("api action route", () => {
 	it("uses fallback values when tweet reply payload fields are missing", async () => {
 		createTweetReplyMock.mockResolvedValue({ ok: true });
 
-		await Route.options.server.handlers.POST({
+		await POST({
 			request: new Request("http://localhost/api/action", {
 				method: "POST",
 				body: JSON.stringify({ kind: "replyTweet" }),
@@ -240,7 +243,7 @@ describe("api action route", () => {
 	it("uses fallback values when dm reply payload fields are missing", async () => {
 		createDmReplyMock.mockResolvedValue({ ok: true });
 
-		await Route.options.server.handlers.POST({
+		await POST({
 			request: new Request("http://localhost/api/action", {
 				method: "POST",
 				body: JSON.stringify({ kind: "replyDm" }),
@@ -253,7 +256,7 @@ describe("api action route", () => {
 	it("uses score defaults when score payload fields are missing", async () => {
 		scoreInboxMock.mockResolvedValue({ ok: true });
 
-		await Route.options.server.handlers.POST({
+		await POST({
 			request: new Request("http://localhost/api/action", {
 				method: "POST",
 				body: JSON.stringify({ kind: "scoreInbox" }),
@@ -270,31 +273,31 @@ describe("api action route", () => {
 		removeMuteMock.mockResolvedValue({ ok: true });
 		syncBlocksMock.mockResolvedValue({ ok: true });
 
-		await Route.options.server.handlers.POST({
+		await POST({
 			request: new Request("http://localhost/api/action", {
 				method: "POST",
 				body: JSON.stringify({ kind: "blockProfile" }),
 			}),
 		});
-		await Route.options.server.handlers.POST({
+		await POST({
 			request: new Request("http://localhost/api/action", {
 				method: "POST",
 				body: JSON.stringify({ kind: "unblockProfile" }),
 			}),
 		});
-		await Route.options.server.handlers.POST({
+		await POST({
 			request: new Request("http://localhost/api/action", {
 				method: "POST",
 				body: JSON.stringify({ kind: "muteProfile" }),
 			}),
 		});
-		await Route.options.server.handlers.POST({
+		await POST({
 			request: new Request("http://localhost/api/action", {
 				method: "POST",
 				body: JSON.stringify({ kind: "unmuteProfile" }),
 			}),
 		});
-		await Route.options.server.handlers.POST({
+		await POST({
 			request: new Request("http://localhost/api/action", {
 				method: "POST",
 				body: JSON.stringify({ kind: "syncBlocks" }),

@@ -5,12 +5,7 @@ import {
 	getDefaultAccountId,
 	toProfile,
 } from "./moderation-target";
-import type {
-	BlockItem,
-	BlockListResponse,
-	BlockSearchItem,
-	XurlMentionUser,
-} from "./types";
+import type { BlockItem, BlockListResponse, BlockSearchItem } from "./types";
 import { upsertProfileFromXUser } from "./x-profile";
 import { listBlockedUsers, lookupAuthenticatedUser } from "./xurl";
 
@@ -272,7 +267,7 @@ export async function syncBlocks(accountId: string) {
 			const page = await listBlockedUsers(sourceUserId, nextToken ?? undefined);
 			const mergeRemotePage = db.transaction(() => {
 				for (const user of page.items) {
-					const resolved = upsertProfileFromXUser(db, user as XurlMentionUser);
+					const resolved = upsertProfileFromXUser(db, user);
 					remoteProfileIds.push(resolved.profile.id);
 					upsertRemoteBlock(
 						db,

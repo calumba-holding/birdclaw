@@ -645,11 +645,14 @@ export function queryResource(
 		};
 	}
 
+	const { resource: _filterResource, ...timelineFilters } =
+		filters as TimelineQuery;
+
 	return {
 		resource,
 		items: listTimelineItems({
 			resource,
-			...(filters as TimelineQuery),
+			...timelineFilters,
 		}),
 	};
 }

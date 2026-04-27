@@ -10,6 +10,7 @@ import type {
 	TweetEntities,
 	XurlMentionData,
 	XurlMentionsResponse,
+	XurlMentionUser,
 } from "./types";
 import { ensureStubProfileForXUser, upsertProfileFromXUser } from "./x-profile";
 import { listMentionsViaXurl, lookupUsersByHandles } from "./xurl";
@@ -257,11 +258,7 @@ function mergeMentionPayloads(
 ): XurlMentionsResponse {
 	const tweets: XurlMentionData[] = [];
 	const seenTweetIds = new Set<string>();
-	const users: XurlMentionsResponse["includes"] extends { users?: infer T }
-		? T extends Array<infer U>
-			? U[]
-			: never
-		: never = [];
+	const users: XurlMentionUser[] = [];
 	const seenUserIds = new Set<string>();
 
 	for (const page of pages) {

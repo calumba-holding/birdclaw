@@ -35,8 +35,12 @@ import { Route } from "./__root";
 
 describe("root route", () => {
 	it("exposes document metadata and renders shell chrome", () => {
-		const head = Route.options.head?.();
-		const Shell = Route.options.shellComponent as ({
+		const routeOptions = Route.options as unknown as {
+			head?: () => unknown;
+			shellComponent: ({ children }: { children: ReactNode }) => ReactNode;
+		};
+		const head = routeOptions.head?.();
+		const Shell = routeOptions.shellComponent as ({
 			children,
 		}: {
 			children: ReactNode;

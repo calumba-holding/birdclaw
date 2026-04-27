@@ -20,7 +20,7 @@ export async function addMute(
 	const transport = await runModerationAction({
 		action: "mute",
 		query: actionQuery,
-		targetUserId: resolved.externalUserId,
+		targetUserId: resolved.externalUserId ?? undefined,
 		transport: options.transport,
 	});
 
@@ -92,7 +92,7 @@ export async function removeMute(
 	const transport = await runModerationAction({
 		action: "unmute",
 		query: actionQuery,
-		targetUserId: resolved.externalUserId,
+		targetUserId: resolved.externalUserId ?? undefined,
 		transport: options.transport,
 	});
 

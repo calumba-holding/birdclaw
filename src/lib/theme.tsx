@@ -111,7 +111,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 			return;
 		}
 
-		const media = window.matchMedia("(prefers-color-scheme: dark)");
+		const media = window.matchMedia(
+			"(prefers-color-scheme: dark)",
+		) as unknown as {
+			matches: boolean;
+			addEventListener?: (type: "change", listener: () => void) => void;
+			removeEventListener?: (type: "change", listener: () => void) => void;
+			addListener?: (listener: () => void) => void;
+			removeListener?: (listener: () => void) => void;
+		};
 		const onChange = () => {
 			const nextResolvedTheme = media.matches ? "dark" : "light";
 			setResolvedTheme(nextResolvedTheme);
@@ -119,16 +127,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 			document.documentElement.style.colorScheme = nextResolvedTheme;
 		};
 
-		if ("addEventListener" in media) {
+		if (typeof media.addEventListener === "function") {
 			media.addEventListener("change", onChange);
 		} else {
-			media.addListener(onChange);
+			media.addListener?.(onChange);
 		}
 		return () => {
-			if ("removeEventListener" in media) {
+			if (typeof media.removeEventListener === "function") {
 				media.removeEventListener("change", onChange);
 			} else {
-				media.removeListener(onChange);
+				media.removeListener?.(onChange);
 			}
 		};
 	}, [isReady, theme]);

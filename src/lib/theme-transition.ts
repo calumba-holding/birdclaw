@@ -7,12 +7,6 @@ export interface ThemeTransitionContext {
 	pointerClientY?: number;
 }
 
-interface DocumentWithViewTransition extends Document {
-	startViewTransition?: (callback: () => void) => {
-		finished: Promise<void>;
-	};
-}
-
 const clamp01 = (value: number) => {
 	if (Number.isNaN(value)) return 0.5;
 	if (value <= 0) return 0;
@@ -58,10 +52,12 @@ export function startThemeTransition({
 	}
 
 	const root = document.documentElement;
-	const documentWithTransition = document as DocumentWithViewTransition;
+	const startViewTransition =
+		typeof document.startViewTransition === "function"
+			? document.startViewTransition.bind(document)
+			: undefined;
 	const canUseViewTransition =
-		Boolean(documentWithTransition.startViewTransition) &&
-		!hasReducedMotionPreference();
+		Boolean(startViewTransition) && !hasReducedMotionPreference();
 
 	const applyTheme = () => {
 		flushSync(() => {
@@ -98,7 +94,7 @@ export function startThemeTransition({
 	root.classList.add("theme-transition");
 
 	try {
-		const transition = documentWithTransition.startViewTransition?.(() => {
+		const transition = startViewTransition?.(() => {
 			applyTheme();
 		});
 

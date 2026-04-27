@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
+import { getRouteHandler } from "#/test/route-handlers";
 
 const queryResourceMock = vi.fn();
 
@@ -9,10 +10,12 @@ vi.mock("#/lib/queries", () => ({
 
 import { Route } from "./query";
 
+const GET = getRouteHandler(Route, "GET");
+
 describe("api query route", () => {
 	it("parses dm filters", async () => {
 		queryResourceMock.mockReturnValue({ resource: "dms", items: [] });
-		const response = await Route.options.server.handlers.GET({
+		const response = await GET({
 			request: new Request(
 				"http://localhost/api/query?resource=dms&replyFilter=unreplied&minFollowers=10&minInfluenceScore=90&sort=influence",
 			),
@@ -32,7 +35,7 @@ describe("api query route", () => {
 
 	it("defaults invalid reply filters to all", async () => {
 		queryResourceMock.mockReturnValue({ resource: "home", items: [] });
-		await Route.options.server.handlers.GET({
+		await GET({
 			request: new Request(
 				"http://localhost/api/query?resource=home&replyFilter=bad&since=2020-01-01&until=2021-01-01&qualityFilter=summary&originalsOnly=true",
 			),
@@ -53,7 +56,7 @@ describe("api query route", () => {
 
 	it("drops invalid numeric filters and defaults sort", async () => {
 		queryResourceMock.mockReturnValue({ resource: "dms", items: [] });
-		await Route.options.server.handlers.GET({
+		await GET({
 			request: new Request(
 				"http://localhost/api/query?resource=dms&minFollowers=wat&maxFollowers=33&maxInfluenceScore=nope&sort=bad",
 			),

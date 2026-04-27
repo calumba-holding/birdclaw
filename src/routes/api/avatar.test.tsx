@@ -5,9 +5,11 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { resetBirdclawPathsForTests } from "#/lib/config";
 import { getNativeDb, resetDatabaseForTests } from "#/lib/db";
+import { getRouteHandler } from "#/test/route-handlers";
 import { Route } from "./avatar";
 
 const tempDirs: string[] = [];
+const GET = getRouteHandler(Route, "GET");
 
 afterEach(() => {
 	resetDatabaseForTests();
@@ -21,7 +23,7 @@ afterEach(() => {
 
 describe("avatar api route", () => {
 	it("returns 400 when profileId is missing", async () => {
-		const response = await Route.options.server.handlers.GET({
+		const response = await GET({
 			request: new Request("http://birdclaw.test/api/avatar"),
 		});
 
@@ -50,7 +52,7 @@ describe("avatar api route", () => {
 			"2026-03-08T12:00:00.000Z",
 		);
 
-		const response = await Route.options.server.handlers.GET({
+		const response = await GET({
 			request: new Request(
 				"http://birdclaw.test/api/avatar?profileId=profile_demo",
 			),
@@ -80,7 +82,7 @@ describe("avatar api route", () => {
 				"2026-03-08T12:00:00.000Z",
 			);
 
-		const response = await Route.options.server.handlers.GET({
+		const response = await GET({
 			request: new Request(
 				"http://birdclaw.test/api/avatar?profileId=profile_demo",
 			),

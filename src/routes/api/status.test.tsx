@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { getRouteHandler } from "#/test/route-handlers";
 
 const mocks = vi.hoisted(() => ({
 	getQueryEnvelope: vi.fn(),
@@ -10,6 +11,8 @@ vi.mock("#/lib/queries", () => ({
 
 import { Route } from "./status";
 
+const GET = getRouteHandler(Route, "GET");
+
 describe("status api route", () => {
 	it("returns the query envelope as json", async () => {
 		mocks.getQueryEnvelope.mockResolvedValue({
@@ -19,7 +22,7 @@ describe("status api route", () => {
 			transport: { statusText: "xurl available" },
 		});
 
-		const response = await Route.options.server.handlers.GET({
+		const response = await GET({
 			request: new Request("http://birdclaw.test/api/status"),
 		});
 

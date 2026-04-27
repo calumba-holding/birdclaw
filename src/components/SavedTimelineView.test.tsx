@@ -14,7 +14,7 @@ describe("SavedTimelineView", () => {
 	});
 
 	it("loads liked posts through the query API", async () => {
-		let queryUrl: URL | null = null;
+		const queryUrls: URL[] = [];
 		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 			const url = String(input);
 			if (url.endsWith("/api/status")) {
@@ -28,7 +28,7 @@ describe("SavedTimelineView", () => {
 				);
 			}
 			if (url.includes("/api/query")) {
-				queryUrl = new URL(url);
+				queryUrls.push(new URL(url));
 				return new Response(
 					JSON.stringify({
 						resource: "home",
@@ -51,12 +51,13 @@ describe("SavedTimelineView", () => {
 		);
 
 		expect(await screen.findByText("good thing")).toBeInTheDocument();
+		const queryUrl = queryUrls[0];
 		expect(queryUrl?.searchParams.get("liked")).toBe("true");
 		expect(queryUrl?.searchParams.get("bookmarked")).toBeNull();
 	});
 
 	it("loads bookmarks through the query API", async () => {
-		let queryUrl: URL | null = null;
+		const queryUrls: URL[] = [];
 		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 			const url = String(input);
 			if (url.endsWith("/api/status")) {
@@ -70,7 +71,7 @@ describe("SavedTimelineView", () => {
 				);
 			}
 			if (url.includes("/api/query")) {
-				queryUrl = new URL(url);
+				queryUrls.push(new URL(url));
 				return new Response(
 					JSON.stringify({
 						resource: "home",
@@ -95,6 +96,7 @@ describe("SavedTimelineView", () => {
 		await waitFor(() => {
 			expect(screen.getByText("saved thing")).toBeInTheDocument();
 		});
+		const queryUrl = queryUrls[0];
 		expect(queryUrl?.searchParams.get("bookmarked")).toBe("true");
 		expect(queryUrl?.searchParams.get("liked")).toBeNull();
 	});

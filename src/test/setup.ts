@@ -1,5 +1,7 @@
 process.env.BIRDCLAW_DISABLE_LIVE_WRITES ??= "1";
 
+export {};
+
 function installMemoryStorage(
 	target: object,
 	key: "localStorage" | "sessionStorage",

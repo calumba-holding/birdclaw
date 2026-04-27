@@ -20,7 +20,7 @@ export async function addBlock(
 	const transport = await runModerationAction({
 		action: "block",
 		query: actionQuery,
-		targetUserId: resolved.externalUserId,
+		targetUserId: resolved.externalUserId ?? undefined,
 		transport: options.transport,
 	});
 
@@ -92,7 +92,7 @@ export async function removeBlock(
 	const transport = await runModerationAction({
 		action: "unblock",
 		query: actionQuery,
-		targetUserId: resolved.externalUserId,
+		targetUserId: resolved.externalUserId ?? undefined,
 		transport: options.transport,
 	});
 

@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
+import { getRouteHandler } from "#/test/route-handlers";
 
 const listInboxItemsMock = vi.fn();
 
@@ -9,13 +10,15 @@ vi.mock("#/lib/inbox", () => ({
 
 import { Route } from "./inbox";
 
+const GET = getRouteHandler(Route, "GET");
+
 describe("api inbox route", () => {
 	it("parses inbox filters", async () => {
 		listInboxItemsMock.mockReturnValue({
 			items: [],
 			stats: { total: 0, openai: 0, heuristic: 0 },
 		});
-		const response = await Route.options.server.handlers.GET({
+		const response = await GET({
 			request: new Request(
 				"http://localhost/api/inbox?kind=dms&minScore=55&hideLowSignal=1&limit=5",
 			),
@@ -36,7 +39,7 @@ describe("api inbox route", () => {
 			stats: { total: 0, openai: 0, heuristic: 0 },
 		});
 
-		await Route.options.server.handlers.GET({
+		await GET({
 			request: new Request(
 				"http://localhost/api/inbox?kind=nope&minScore=bad&limit=nan",
 			),

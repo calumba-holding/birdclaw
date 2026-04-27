@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import type {
 	TransportStatus,
 	XurlMentionsResponse,
+	XurlMentionUser,
 	XurlUserTweet,
 } from "./types";
 
@@ -131,7 +132,7 @@ export async function getTransportStatus(): Promise<TransportStatus> {
 		return transportStatusCache.pending;
 	}
 
-	const pending = (async () => {
+	const pending: Promise<TransportStatus> = (async () => {
 		const installed = await hasXurl();
 		if (!installed) {
 			return {
@@ -242,7 +243,7 @@ export async function lookupUsersByIds(ids: string[]) {
 	});
 	const payload = await runJsonCommand([`/2/users?${query.toString()}`]);
 	const data = payload.data;
-	return Array.isArray(data) ? (data as Array<Record<string, unknown>>) : [];
+	return Array.isArray(data) ? (data as XurlMentionUser[]) : [];
 }
 
 export async function lookupUsersByHandles(handles: string[]) {
@@ -257,7 +258,7 @@ export async function lookupUsersByHandles(handles: string[]) {
 	});
 	const payload = await runJsonCommand([`/2/users/by?${query.toString()}`]);
 	const data = payload.data;
-	return Array.isArray(data) ? (data as Array<Record<string, unknown>>) : [];
+	return Array.isArray(data) ? (data as XurlMentionUser[]) : [];
 }
 
 export async function lookupAuthenticatedUser() {
@@ -456,7 +457,7 @@ export async function listBlockedUsers(
 		`/2/users/${userId}/blocking?${query}`,
 	]);
 	const data = Array.isArray(payload.data)
-		? (payload.data as Array<Record<string, unknown>>)
+		? (payload.data as XurlMentionUser[])
 		: [];
 	const meta =
 		payload.meta && typeof payload.meta === "object"

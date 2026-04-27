@@ -106,7 +106,7 @@ export async function resolveProfile(
 		return local;
 	}
 
-	let user: Record<string, unknown> | undefined;
+	let user: XurlMentionUser | undefined;
 	let lastError: unknown;
 
 	try {
@@ -146,18 +146,18 @@ export async function resolveProfile(
 	}
 
 	if (local) {
-		return upsertProfileFromXUser(db, user as XurlMentionUser);
+		return upsertProfileFromXUser(db, user);
 	}
 
 	const username = String(user.username ?? "").replace(/^@/, "");
 	if (username) {
 		const localByHandle = resolveLocalProfile(db, username);
 		if (localByHandle) {
-			return upsertProfileFromXUser(db, user as XurlMentionUser);
+			return upsertProfileFromXUser(db, user);
 		}
 	}
 
-	return upsertProfileFromXUser(db, user as XurlMentionUser);
+	return upsertProfileFromXUser(db, user);
 }
 
 export async function getAuthenticatedUserId() {

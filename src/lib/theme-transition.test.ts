@@ -3,7 +3,7 @@ import { startThemeTransition } from "./theme-transition";
 
 describe("startThemeTransition", () => {
 	const root = document.documentElement;
-	const documentWithTransition = document as Document & {
+	const documentWithTransition = document as unknown as {
 		startViewTransition?:
 			| ((callback: () => void) => { finished?: Promise<void> })
 			| undefined;
