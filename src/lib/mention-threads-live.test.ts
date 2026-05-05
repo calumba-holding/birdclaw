@@ -36,6 +36,20 @@ function setupTempHome() {
 	).run("mention_1", "mention text", "2026-05-04T07:00:00.000Z");
 }
 
+function insertMention(id: string, text: string, createdAt: string) {
+	getNativeDb()
+		.prepare(
+			`
+    insert into tweets (
+      id, account_id, author_profile_id, kind, text, created_at,
+      is_replied, reply_to_id, like_count, media_count, bookmarked, liked,
+      entities_json, media_json, quoted_tweet_id
+    ) values (?, 'acct_primary', 'profile_user_42', 'mention', ?, ?, 0, null, 0, 0, 0, 0, '{}', '[]', null)
+    `,
+		)
+		.run(id, text, createdAt);
+}
+
 afterEach(() => {
 	resetDatabaseForTests();
 	resetBirdclawPathsForTests();
@@ -143,5 +157,89 @@ describe("mention thread sync", () => {
 			failed: 1,
 			failures: [{ tweetId: "mention_1", error: "rate limited" }],
 		});
+	});
+
+	it("handles multiple mentions, delay, non-error failures, and stub authors", async () => {
+		setupTempHome();
+		insertMention("mention_2", "newer mention", "2026-05-04T08:00:00.000Z");
+		mocks.listThreadViaBird
+			.mockResolvedValueOnce({
+				data: [
+					{
+						id: "mention_2",
+						author_id: "42",
+						text: "newer mention",
+						created_at: "2026-05-04T08:00:00.000Z",
+						entities: {
+							urls: [
+								{ media_key: "media_1" },
+								{ media_key: false },
+								"not an object",
+							],
+						},
+					},
+					{
+						id: "unknown_reply",
+						author_id: "77",
+						text: "unknown author reply",
+						created_at: "2026-05-04T08:01:00.000Z",
+					},
+				],
+				meta: { result_count: 2 },
+			})
+			.mockRejectedValueOnce("temporary failure");
+		const { syncMentionThreads } = await import("./mention-threads-live");
+
+		const result = await syncMentionThreads({
+			limit: 2,
+			delayMs: 1,
+			timeoutMs: 1200,
+			all: true,
+			maxPages: 3,
+		});
+		const row = getNativeDb()
+			.prepare("select media_count, author_profile_id from tweets where id = ?")
+			.get("unknown_reply");
+
+		expect(result).toMatchObject({
+			mentions: 2,
+			succeeded: 1,
+			failed: 1,
+			mergedTweets: 2,
+			uniqueTweets: 2,
+			options: { delayMs: 1, timeoutMs: 1200, all: true, maxPages: 3 },
+			failures: [{ tweetId: "mention_1", error: "temporary failure" }],
+		});
+		expect(mocks.listThreadViaBird).toHaveBeenNthCalledWith(1, {
+			tweetId: "mention_2",
+			all: true,
+			maxPages: 3,
+			timeoutMs: 1200,
+		});
+		expect(row).toMatchObject({
+			media_count: 0,
+			author_profile_id: "profile_user_77",
+		});
+	});
+
+	it("validates mention thread sync options", async () => {
+		setupTempHome();
+		const { syncMentionThreads } = await import("./mention-threads-live");
+
+		await expect(syncMentionThreads({ limit: 0 })).rejects.toThrow(
+			"--limit must be at least 1",
+		);
+		await expect(syncMentionThreads({ delayMs: -1 })).rejects.toThrow(
+			"--delay-ms must be non-negative",
+		);
+		await expect(syncMentionThreads({ timeoutMs: 0 })).rejects.toThrow(
+			"--timeout-ms must be at least 1",
+		);
+		await expect(syncMentionThreads({ maxPages: -1 })).rejects.toThrow(
+			"--max-pages must be non-negative",
+		);
+		await expect(syncMentionThreads({ account: "missing" })).rejects.toThrow(
+			"Unknown account: missing",
+		);
 	});
 });

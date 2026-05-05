@@ -107,6 +107,87 @@ describe("live timeline collection sync", () => {
 		});
 	});
 
+	it("paginates xurl collections and deduplicates tweets and users", async () => {
+		setupTempHome();
+		const db = getNativeDb();
+		db.prepare("update accounts set external_user_id = null where id = ?").run(
+			"acct_primary",
+		);
+		mocks.lookupUsersByHandles.mockResolvedValue([{ id: "25401953" }]);
+		mocks.listLikedTweetsViaXurl
+			.mockResolvedValueOnce({
+				data: [
+					{
+						id: "liked_1",
+						author_id: "42",
+						text: "first page item",
+						created_at: "2026-04-26T13:43:34.000Z",
+					},
+				],
+				includes: {
+					users: [{ id: "42", username: "sam", name: "Sam" }],
+				},
+				meta: { result_count: 1, next_token: "next-page" },
+			})
+			.mockResolvedValueOnce({
+				data: [
+					{
+						id: "liked_1",
+						author_id: "42",
+						text: "duplicate item",
+						created_at: "2026-04-26T13:43:34.000Z",
+					},
+					{
+						id: "liked_2",
+						author_id: "43",
+						text: "second page item",
+						created_at: "2026-04-26T14:43:34.000Z",
+					},
+				],
+				includes: {
+					users: [
+						{ id: "42", username: "sam", name: "Sam" },
+						{ id: "43", username: "jules", name: "Jules" },
+					],
+				},
+				meta: { result_count: 2 },
+			});
+		const { syncTimelineCollection } =
+			await import("./timeline-collections-live");
+
+		const result = await syncTimelineCollection({
+			kind: "likes",
+			mode: "xurl",
+			limit: 5,
+			all: true,
+			refresh: true,
+		});
+
+		expect(result).toMatchObject({
+			ok: true,
+			source: "xurl",
+			count: 2,
+			payload: {
+				includes: {
+					users: expect.arrayContaining([
+						expect.objectContaining({ id: "43" }),
+					]),
+				},
+				meta: { page_count: 2, oldest_id: "liked_2", newest_id: "liked_1" },
+			},
+		});
+		expect(mocks.lookupUsersByHandles).toHaveBeenCalledWith(["steipete"]);
+		expect(mocks.listLikedTweetsViaXurl).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({ paginationToken: "next-page" }),
+		);
+		expect(
+			listTimelineItems({ resource: "home", likedOnly: true }).filter((item) =>
+				item.id.startsWith("liked_"),
+			),
+		).toHaveLength(2);
+	});
+
 	it("falls back to bird for bookmarks when xurl fails", async () => {
 		setupTempHome();
 		mocks.lookupUsersByHandles.mockResolvedValue([{ id: "25401953" }]);
@@ -158,6 +239,96 @@ describe("live timeline collection sync", () => {
 		});
 	});
 
+	it("uses bird directly for liked collections and caches the payload", async () => {
+		setupTempHome();
+		mocks.listLikedTweetsViaBird.mockResolvedValue({
+			data: [
+				{
+					id: "bird_liked_1",
+					author_id: "99",
+					text: "bird liked item",
+					created_at: "2026-04-26T13:43:34.000Z",
+					entities: {
+						urls: [{ media_key: "media_1" }, { media_key: 42 }, null],
+					},
+				},
+			],
+			meta: { result_count: 1 },
+		});
+		const { syncTimelineCollection } =
+			await import("./timeline-collections-live");
+
+		const fresh = await syncTimelineCollection({
+			kind: "likes",
+			mode: "bird",
+			limit: 3,
+			maxPages: 2,
+			refresh: true,
+			cacheTtlMs: 15_000,
+		});
+		const cached = await syncTimelineCollection({
+			kind: "likes",
+			mode: "bird",
+			limit: 3,
+			maxPages: 2,
+			cacheTtlMs: 15_000,
+		});
+		const row = getNativeDb()
+			.prepare("select media_count, author_profile_id from tweets where id = ?")
+			.get("bird_liked_1");
+
+		expect(fresh).toMatchObject({ source: "bird", count: 1 });
+		expect(cached).toMatchObject({ source: "cache", count: 1 });
+		expect(mocks.listLikedTweetsViaBird).toHaveBeenCalledTimes(1);
+		expect(mocks.listLikedTweetsViaBird).toHaveBeenCalledWith({
+			maxResults: 3,
+			all: false,
+			maxPages: 2,
+		});
+		expect(row).toMatchObject({
+			media_count: 1,
+			author_profile_id: "profile_user_99",
+		});
+	});
+
+	it("validates collection sync options before fetching", async () => {
+		setupTempHome();
+		const { syncTimelineCollection } =
+			await import("./timeline-collections-live");
+
+		await expect(
+			syncTimelineCollection({ kind: "likes", limit: 0 }),
+		).rejects.toThrow("--limit must be at least 1");
+		await expect(
+			syncTimelineCollection({ kind: "likes", mode: "xurl", limit: 4 }),
+		).rejects.toThrow("xurl mode requires --limit between 5 and 100");
+		await expect(
+			syncTimelineCollection({
+				kind: "likes",
+				mode: "bird",
+				limit: 1,
+				maxPages: 0,
+			}),
+		).rejects.toThrow("--max-pages must be at least 1");
+	});
+
+	it("does not fall back when xurl mode fails", async () => {
+		setupTempHome();
+		mocks.listLikedTweetsViaXurl.mockRejectedValue(new Error("xurl failed"));
+		const { syncTimelineCollection } =
+			await import("./timeline-collections-live");
+
+		await expect(
+			syncTimelineCollection({
+				kind: "likes",
+				mode: "xurl",
+				limit: 5,
+				refresh: true,
+			}),
+		).rejects.toThrow("xurl failed");
+		expect(mocks.listLikedTweetsViaBird).not.toHaveBeenCalled();
+	});
+
 	it("syncs the bird following timeline into the local home feed", async () => {
 		setupTempHome();
 		mocks.listHomeTimelineViaBird.mockResolvedValue({
@@ -200,5 +371,67 @@ describe("live timeline collection sync", () => {
 			bookmarked: false,
 			author: { handle: "jules" },
 		});
+	});
+
+	it("caches bird home timeline payloads by feed", async () => {
+		setupTempHome();
+		mocks.listHomeTimelineViaBird.mockResolvedValue({
+			data: [
+				{
+					id: "home_cached_1",
+					author_id: "45",
+					text: "bird for you item",
+					created_at: "2026-05-04T07:19:34.000Z",
+					entities: {
+						urls: [{ media_key: "media_1" }, { media_key: 17 }, undefined],
+					},
+				},
+			],
+			meta: { result_count: 1 },
+		});
+		const { syncHomeTimeline } = await import("./timeline-live");
+
+		const fresh = await syncHomeTimeline({
+			limit: 25,
+			following: false,
+			refresh: true,
+			cacheTtlMs: 10_000,
+		});
+		const cached = await syncHomeTimeline({
+			limit: 25,
+			following: false,
+			cacheTtlMs: 10_000,
+		});
+		const row = getNativeDb()
+			.prepare("select media_count, author_profile_id from tweets where id = ?")
+			.get("home_cached_1");
+
+		expect(fresh).toMatchObject({ source: "bird", feed: "for-you" });
+		expect(cached).toMatchObject({ source: "cache", feed: "for-you" });
+		expect(mocks.listHomeTimelineViaBird).toHaveBeenCalledTimes(1);
+		expect(mocks.listHomeTimelineViaBird).toHaveBeenCalledWith({
+			maxResults: 25,
+			following: false,
+		});
+		expect(row).toMatchObject({
+			media_count: 1,
+			author_profile_id: "profile_user_45",
+		});
+	});
+
+	it("validates home timeline options before fetching", async () => {
+		setupTempHome();
+		const { syncHomeTimeline } = await import("./timeline-live");
+
+		await expect(syncHomeTimeline({ limit: 0 })).rejects.toThrow(
+			"--limit must be at least 1",
+		);
+		await expect(syncHomeTimeline({ account: "missing" })).rejects.toThrow(
+			"Unknown account: missing",
+		);
+		getNativeDb().prepare("delete from accounts").run();
+		await expect(syncHomeTimeline({})).rejects.toThrow(
+			"Unknown account: default",
+		);
 	});
 });
