@@ -9,6 +9,7 @@ import { listTimelineItems } from "./queries";
 
 const mocks = vi.hoisted(() => ({
 	listBookmarkedTweetsViaBird: vi.fn(),
+	listHomeTimelineViaBird: vi.fn(),
 	listLikedTweetsViaBird: vi.fn(),
 	listBookmarkedTweetsViaXurl: vi.fn(),
 	listLikedTweetsViaXurl: vi.fn(),
@@ -17,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./bird", () => ({
 	listBookmarkedTweetsViaBird: mocks.listBookmarkedTweetsViaBird,
+	listHomeTimelineViaBird: mocks.listHomeTimelineViaBird,
 	listLikedTweetsViaBird: mocks.listLikedTweetsViaBird,
 }));
 
@@ -153,6 +155,50 @@ describe("live timeline collection sync", () => {
 			bookmarked: true,
 			liked: false,
 			author: { handle: "amelia" },
+		});
+	});
+
+	it("syncs the bird following timeline into the local home feed", async () => {
+		setupTempHome();
+		mocks.listHomeTimelineViaBird.mockResolvedValue({
+			data: [
+				{
+					id: "home_1",
+					author_id: "44",
+					text: "bird home item",
+					created_at: "2026-05-04T07:19:34.000Z",
+					public_metrics: { like_count: 15 },
+				},
+			],
+			includes: {
+				users: [{ id: "44", username: "jules", name: "Jules" }],
+			},
+			meta: { result_count: 1 },
+		});
+		const { syncHomeTimeline } = await import("./timeline-live");
+
+		const result = await syncHomeTimeline({
+			limit: 25,
+			refresh: true,
+		});
+		const home = listTimelineItems({ resource: "home" });
+		const syncedHomeItem = home.find((item) => item.id === "home_1");
+
+		expect(result).toMatchObject({
+			ok: true,
+			source: "bird",
+			feed: "following",
+			count: 1,
+		});
+		expect(mocks.listHomeTimelineViaBird).toHaveBeenCalledWith({
+			maxResults: 25,
+			following: true,
+		});
+		expect(syncedHomeItem).toMatchObject({
+			kind: "home",
+			liked: false,
+			bookmarked: false,
+			author: { handle: "jules" },
 		});
 	});
 });

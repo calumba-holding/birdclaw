@@ -1,4 +1,7 @@
 import { execFile } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import { getBirdCommand } from "./config";
 import type {
@@ -11,32 +14,6 @@ import type {
 
 const execFileAsync = promisify(execFile);
 const BIRD_JSON_MAX_BUFFER_BYTES = 512 * 1024 * 1024;
-
-function formatBirdCommandError(error: unknown, birdCommand: string) {
-	if (
-		error instanceof Error &&
-		"code" in error &&
-		(error as { code?: unknown }).code === "ENOENT"
-	) {
-		return new Error(
-			`bird CLI not found at ${birdCommand}. Install @steipete/bird or set BIRDCLAW_BIRD_COMMAND / mentions.birdCommand to a valid bird binary.`,
-		);
-	}
-
-	return error;
-}
-
-async function runBirdJsonCommand(args: string[]) {
-	const birdCommand = getBirdCommand();
-	try {
-		const { stdout } = await execFileAsync(birdCommand, args, {
-			maxBuffer: BIRD_JSON_MAX_BUFFER_BYTES,
-		});
-		return stdout;
-	} catch (error) {
-		throw formatBirdCommandError(error, birdCommand);
-	}
-}
 
 interface BirdTweetMedia {
 	type?: string;
@@ -167,6 +144,23 @@ function parseBirdJson(stdout: string) {
 			throw error;
 		}
 		return JSON.parse(escapeJsonStringControlChars(stdout)) as unknown;
+	}
+}
+
+async function runBirdJsonCommand(args: string[], timeoutMs?: number) {
+	const tempDir = mkdtempSync(join(tmpdir(), "birdclaw-bird-"));
+	const stdoutPath = join(tempDir, "stdout.json");
+	try {
+		const birdCommand = getBirdCommand();
+		const shellScript = 'out="$1"; shift; exec "$@" > "$out"';
+		await execFileAsync(
+			"/bin/bash",
+			["-lc", shellScript, "birdclaw-bird", stdoutPath, birdCommand, ...args],
+			{ maxBuffer: BIRD_JSON_MAX_BUFFER_BYTES, timeout: timeoutMs },
+		);
+		return readFileSync(stdoutPath, "utf8");
+	} finally {
+		rmSync(tempDir, { recursive: true, force: true });
 	}
 }
 
@@ -369,6 +363,47 @@ export async function lookupTweetsByIdsViaBird(
 	);
 
 	return normalizeBirdTweets(tweets);
+}
+
+export async function listHomeTimelineViaBird({
+	maxResults,
+	following = true,
+}: {
+	maxResults: number;
+	following?: boolean;
+}): Promise<XurlMentionsResponse> {
+	const args = ["home", "-n", String(maxResults), "--json"];
+	if (following) {
+		args.push("--following");
+	}
+	const stdout = await runBirdJsonCommand(args);
+	const payload = parseBirdJson(stdout);
+
+	return normalizeBirdTweets(getBirdTweetItems(payload, "home"));
+}
+
+export async function listThreadViaBird({
+	tweetId,
+	all,
+	maxPages,
+	timeoutMs,
+}: {
+	tweetId: string;
+	all?: boolean;
+	maxPages?: number;
+	timeoutMs?: number;
+}): Promise<XurlMentionsResponse> {
+	const args = ["thread", tweetId, "--json"];
+	if (all) {
+		args.push("--all");
+	}
+	if (maxPages !== undefined) {
+		args.push("--max-pages", String(maxPages));
+	}
+	const stdout = await runBirdJsonCommand(args, timeoutMs);
+	const payload = parseBirdJson(stdout);
+
+	return normalizeBirdTweets(getBirdTweetItems(payload, "thread"));
 }
 
 export async function listDirectMessagesViaBird({

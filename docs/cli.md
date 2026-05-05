@@ -68,6 +68,8 @@ birdclaw sync tweets
 birdclaw sync dms
 birdclaw sync bookmarks
 birdclaw sync likes
+birdclaw sync timeline
+birdclaw sync mention-threads
 birdclaw sync followers
 birdclaw sync following
 birdclaw search tweets <query>
@@ -149,6 +151,7 @@ Shard contract:
 
 - tweets: `data/tweets/YYYY.jsonl`
 - unknown tweet dates: `data/tweets/unknown.jsonl`
+- profiles: `data/profiles.jsonl` includes bio plus follower/following counts
 - collections: `data/collections/likes.jsonl`, `data/collections/bookmarks.jsonl`
 - DMs: `data/dms/conversations.jsonl` plus `data/dms/YYYY.jsonl`
 - moderation: `data/moderation/blocks.jsonl`, `data/moderation/mutes.jsonl`
@@ -215,6 +218,8 @@ Default:
 - refresh cursors
 - refresh FTS incrementally
 - `sync likes` and `sync bookmarks` use cached live transport; `auto` tries `xurl`, then `bird`
+- `sync timeline` stores the live home timeline through `bird`; it defaults to the chronological Following feed
+- `sync mention-threads` fetches conversation context for recent mentions through `bird thread`; use `--delay-ms` and `--timeout-ms` to stay gentle on live X
 
 Common flags:
 
@@ -234,6 +239,8 @@ Examples:
 birdclaw sync likes --mode auto --limit 100 --refresh --json
 birdclaw sync bookmarks --mode auto --limit 100 --refresh --json
 birdclaw sync bookmarks --mode bird --all --max-pages 5 --limit 100 --refresh --json
+birdclaw sync timeline --limit 100 --refresh --json
+birdclaw sync mention-threads --limit 30 --delay-ms 1500 --timeout-ms 15000 --json
 ```
 
 ### `jobs sync-bookmarks`

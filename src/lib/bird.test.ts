@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { writeFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const execFileAsyncMock = vi.fn();
@@ -9,6 +10,23 @@ vi.mock("node:child_process", () => ({
 	}),
 }));
 
+function mockBirdStdoutOnce(stdout: string) {
+	execFileAsyncMock.mockImplementationOnce(async (_command, args: string[]) => {
+		writeFileSync(args[3] ?? "", stdout);
+		return { stdout: "", stderr: "" };
+	});
+}
+
+function expectBirdCommandCall(callNumber: number, args: string[]) {
+	const call = execFileAsyncMock.mock.calls[callNumber - 1];
+	expect(call).toBeDefined();
+	expect(call[0]).toBe("/bin/bash");
+	expect((call[1] as string[]).slice(4)).toEqual(["/tmp/bird", ...args]);
+	expect(call[2]).toEqual(
+		expect.objectContaining({ maxBuffer: expect.any(Number) }),
+	);
+}
+
 describe("bird transport wrapper", () => {
 	afterEach(() => {
 		vi.resetModules();
@@ -18,8 +36,8 @@ describe("bird transport wrapper", () => {
 
 	it("maps bird mentions json into xurl-compatible payloads", async () => {
 		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
-		execFileAsyncMock.mockResolvedValue({
-			stdout: JSON.stringify([
+		mockBirdStdoutOnce(
+			JSON.stringify([
 				{
 					id: "tweet_1",
 					text: "hello from bird",
@@ -42,18 +60,14 @@ describe("bird transport wrapper", () => {
 					],
 				},
 			]),
-		});
+		);
 		const { listMentionsViaBird } = await import("./bird");
 
 		const payload = await listMentionsViaBird({
 			maxResults: 12,
 		});
 
-		expect(execFileAsyncMock).toHaveBeenCalledWith(
-			"/tmp/bird",
-			["mentions", "-n", "12", "--json"],
-			expect.objectContaining({ maxBuffer: expect.any(Number) }),
-		);
+		expectBirdCommandCall(1, ["mentions", "-n", "12", "--json"]);
 		expect(payload).toEqual({
 			data: [
 				expect.objectContaining({
@@ -96,31 +110,30 @@ describe("bird transport wrapper", () => {
 
 	it("maps mention fallbacks and empty mention payloads", async () => {
 		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
-		execFileAsyncMock
-			.mockResolvedValueOnce({
-				stdout: JSON.stringify([
-					{
-						id: "tweet_2",
-						text: "fallback author",
-						createdAt: "not a date",
-						media: [],
-					},
-					{
-						id: "tweet_3",
-						text: "username author",
-						createdAt: "2026-01-02T03:04:05.000Z",
-						author: { username: "max" },
-						replyCount: "4",
-						retweetCount: "5",
-						likeCount: "6",
-						media: [
-							{ type: "photo", url: "" },
-							{ type: "photo", url: "https://pbs.twimg.com/media/other.jpg" },
-						],
-					},
-				]),
-			})
-			.mockResolvedValueOnce({ stdout: "[]" });
+		mockBirdStdoutOnce(
+			JSON.stringify([
+				{
+					id: "tweet_2",
+					text: "fallback author",
+					createdAt: "not a date",
+					media: [],
+				},
+				{
+					id: "tweet_3",
+					text: "username author",
+					createdAt: "2026-01-02T03:04:05.000Z",
+					author: { username: "max" },
+					replyCount: "4",
+					retweetCount: "5",
+					likeCount: "6",
+					media: [
+						{ type: "photo", url: "" },
+						{ type: "photo", url: "https://pbs.twimg.com/media/other.jpg" },
+					],
+				},
+			]),
+		);
+		mockBirdStdoutOnce("[]");
 
 		const { listMentionsViaBird } = await import("./bird");
 
@@ -189,7 +202,7 @@ describe("bird transport wrapper", () => {
 
 	it("rejects unexpected mention json", async () => {
 		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
-		execFileAsyncMock.mockResolvedValue({ stdout: "{}" });
+		mockBirdStdoutOnce("{}");
 
 		const { listMentionsViaBird } = await import("./bird");
 
@@ -215,10 +228,9 @@ describe("bird transport wrapper", () => {
 
 	it("tolerates bird json with raw newlines inside tweet text", async () => {
 		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
-		execFileAsyncMock.mockResolvedValue({
-			stdout:
-				'[{ "id": "tweet_1", "text": "first line\nsecond line", "createdAt": "2026-04-26T13:43:34.000Z", "authorId": "42", "author": { "username": "sam", "name": "Sam" } }]',
-		});
+		mockBirdStdoutOnce(
+			'[{ "id": "tweet_1", "text": "first line\nsecond line", "createdAt": "2026-04-26T13:43:34.000Z", "authorId": "42", "author": { "username": "sam", "name": "Sam" } }]',
+		);
 		const { listLikedTweetsViaBird } = await import("./bird");
 
 		await expect(listLikedTweetsViaBird({ maxResults: 1 })).resolves.toEqual(
@@ -246,45 +258,40 @@ describe("bird transport wrapper", () => {
 			],
 			events: [{ id: "event_1", text: "hello" }],
 		};
-		execFileAsyncMock.mockResolvedValue({ stdout: JSON.stringify(payload) });
+		mockBirdStdoutOnce(JSON.stringify(payload));
 
 		const { listDirectMessagesViaBird } = await import("./bird");
 
 		await expect(listDirectMessagesViaBird({ maxResults: 5 })).resolves.toEqual(
 			payload,
 		);
-		expect(execFileAsyncMock).toHaveBeenCalledWith(
-			"/tmp/bird",
-			["dms", "-n", "5", "--json"],
-			expect.objectContaining({ maxBuffer: expect.any(Number) }),
-		);
+		expectBirdCommandCall(1, ["dms", "-n", "5", "--json"]);
 	});
 
 	it("maps bird likes and bookmarks json into xurl-compatible payloads", async () => {
 		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
-		execFileAsyncMock
-			.mockResolvedValueOnce({
-				stdout: JSON.stringify([
-					{
-						id: "liked_1",
-						text: "liked from bird",
-						createdAt: "2026-04-26T13:43:34.000Z",
-						authorId: "42",
-						author: { username: "sam", name: "Sam" },
-					},
-				]),
-			})
-			.mockResolvedValueOnce({
-				stdout: JSON.stringify([
-					{
-						id: "bookmark_1",
-						text: "saved from bird",
-						createdAt: "2026-04-26T13:43:34.000Z",
-						authorId: "43",
-						author: { username: "amelia", name: "Amelia" },
-					},
-				]),
-			});
+		mockBirdStdoutOnce(
+			JSON.stringify([
+				{
+					id: "liked_1",
+					text: "liked from bird",
+					createdAt: "2026-04-26T13:43:34.000Z",
+					authorId: "42",
+					author: { username: "sam", name: "Sam" },
+				},
+			]),
+		);
+		mockBirdStdoutOnce(
+			JSON.stringify([
+				{
+					id: "bookmark_1",
+					text: "saved from bird",
+					createdAt: "2026-04-26T13:43:34.000Z",
+					authorId: "43",
+					author: { username: "amelia", name: "Amelia" },
+				},
+			]),
+		);
 		const { listBookmarkedTweetsViaBird, listLikedTweetsViaBird } =
 			await import("./bird");
 
@@ -304,24 +311,90 @@ describe("bird transport wrapper", () => {
 			includes: { users: [{ id: "43", username: "amelia", name: "Amelia" }] },
 			meta: expect.objectContaining({ result_count: 1 }),
 		});
-		expect(execFileAsyncMock).toHaveBeenNthCalledWith(
-			1,
-			"/tmp/bird",
-			["likes", "-n", "5", "--json"],
-			expect.objectContaining({ maxBuffer: expect.any(Number) }),
+		expectBirdCommandCall(1, ["likes", "-n", "5", "--json"]);
+		expectBirdCommandCall(2, [
+			"bookmarks",
+			"-n",
+			"7",
+			"--json",
+			"--all",
+			"--max-pages",
+			"2",
+		]);
+	});
+
+	it("maps bird home timeline json into xurl-compatible payloads", async () => {
+		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
+		mockBirdStdoutOnce(
+			JSON.stringify([
+				{
+					id: "home_1",
+					text: "home from bird",
+					createdAt: "Mon May 04 07:19:34 +0000 2026",
+					authorId: "45",
+					author: { username: "riley", name: "Riley" },
+				},
+			]),
 		);
-		expect(execFileAsyncMock).toHaveBeenNthCalledWith(
-			2,
-			"/tmp/bird",
-			["bookmarks", "-n", "7", "--json", "--all", "--max-pages", "2"],
-			expect.objectContaining({ maxBuffer: expect.any(Number) }),
+		const { listHomeTimelineViaBird } = await import("./bird");
+
+		await expect(
+			listHomeTimelineViaBird({ maxResults: 9, following: true }),
+		).resolves.toEqual({
+			data: [expect.objectContaining({ id: "home_1", author_id: "45" })],
+			includes: { users: [{ id: "45", username: "riley", name: "Riley" }] },
+			meta: expect.objectContaining({ result_count: 1 }),
+		});
+		expectBirdCommandCall(1, ["home", "-n", "9", "--json", "--following"]);
+	});
+
+	it("maps bird thread json with reply references", async () => {
+		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
+		mockBirdStdoutOnce(
+			JSON.stringify([
+				{
+					id: "reply_1",
+					text: "thread reply",
+					createdAt: "2026-05-04T07:19:34.000Z",
+					conversationId: "root_1",
+					inReplyToStatusId: "root_1",
+					authorId: "46",
+					author: { username: "casey", name: "Casey" },
+				},
+			]),
+		);
+		const { listThreadViaBird } = await import("./bird");
+
+		await expect(
+			listThreadViaBird({ tweetId: "reply_1", maxPages: 2, timeoutMs: 5000 }),
+		).resolves.toEqual({
+			data: [
+				expect.objectContaining({
+					id: "reply_1",
+					author_id: "46",
+					conversation_id: "root_1",
+					referenced_tweets: [{ type: "replied_to", id: "root_1" }],
+				}),
+			],
+			includes: { users: [{ id: "46", username: "casey", name: "Casey" }] },
+			meta: expect.objectContaining({ result_count: 1 }),
+		});
+		expectBirdCommandCall(1, [
+			"thread",
+			"reply_1",
+			"--json",
+			"--max-pages",
+			"2",
+		]);
+		expect(execFileAsyncMock.mock.calls[0]?.[2]).toEqual(
+			expect.objectContaining({ timeout: 5000 }),
 		);
 	});
 
 	it("accepts current bird collection objects", async () => {
 		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
-		execFileAsyncMock.mockResolvedValue({
-			stdout: JSON.stringify({
+		mockBirdStdoutOnce(
+			JSON.stringify({
 				tweets: [
 					{
 						id: "bookmark_2",
@@ -333,7 +406,7 @@ describe("bird transport wrapper", () => {
 				],
 				nextCursor: null,
 			}),
-		});
+		);
 		const { listBookmarkedTweetsViaBird } = await import("./bird");
 
 		await expect(
@@ -387,21 +460,20 @@ describe("bird transport wrapper", () => {
 
 	it("rejects unexpected direct messages json", async () => {
 		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
-		execFileAsyncMock
-			.mockResolvedValueOnce({
-				stdout: JSON.stringify({
-					success: false,
-					conversations: [],
-					events: [],
-				}),
-			})
-			.mockResolvedValueOnce({
-				stdout: JSON.stringify({
-					success: true,
-					conversations: {},
-					events: [],
-				}),
-			});
+		mockBirdStdoutOnce(
+			JSON.stringify({
+				success: false,
+				conversations: [],
+				events: [],
+			}),
+		);
+		mockBirdStdoutOnce(
+			JSON.stringify({
+				success: true,
+				conversations: {},
+				events: [],
+			}),
+		);
 
 		const { listDirectMessagesViaBird } = await import("./bird");
 

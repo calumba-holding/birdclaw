@@ -29,6 +29,7 @@ import {
 } from "#/lib/config";
 import { syncDirectMessagesViaCachedBird } from "#/lib/dms-live";
 import { listInboxItems, scoreInbox } from "#/lib/inbox";
+import { syncMentionThreads } from "#/lib/mention-threads-live";
 import { exportMentionItems } from "#/lib/mentions-export";
 import {
 	exportMentionsViaCachedBird,
@@ -49,6 +50,7 @@ import {
 	syncTimelineCollection,
 	type TimelineCollectionMode,
 } from "#/lib/timeline-collections-live";
+import { syncHomeTimeline } from "#/lib/timeline-live";
 
 const program = new Command();
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -391,6 +393,50 @@ const dmsCommand = program.command("dms").description("Direct messages");
 const syncCommand = program
 	.command("sync")
 	.description("Refresh live Twitter collections into the local store");
+
+syncCommand
+	.command("timeline")
+	.description("Refresh live home timeline through bird")
+	.option("--account <accountId>", "Account id")
+	.option("--limit <n>", "Result limit", "100")
+	.option("--for-you", 'Fetch "For You" instead of chronological Following')
+	.option("--cache-ttl <seconds>", "Live-cache freshness window", "120")
+	.option("--refresh", "Bypass live-cache freshness window")
+	.action(async (options) => {
+		const result = await syncHomeTimeline({
+			account: options.account,
+			limit: Number(options.limit),
+			following: !options.forYou,
+			refresh: Boolean(options.refresh),
+			cacheTtlMs: Number(options.cacheTtl) * 1000,
+		});
+		await autoSyncAfterWrite();
+		print(result, true);
+	});
+
+syncCommand
+	.command("mention-threads")
+	.description(
+		"Fetch tweet conversation context for recent mentions through bird",
+	)
+	.option("--account <accountId>", "Account id")
+	.option("--limit <n>", "Recent mentions to inspect", "30")
+	.option("--delay-ms <n>", "Delay between thread fetches", "1500")
+	.option("--timeout-ms <n>", "Per-thread timeout", "15000")
+	.option("--all", "Fetch all retrievable thread pages")
+	.option("--max-pages <n>", "Stop after N pages")
+	.action(async (options) => {
+		const result = await syncMentionThreads({
+			account: options.account,
+			limit: Number(options.limit),
+			delayMs: Number(options.delayMs),
+			timeoutMs: Number(options.timeoutMs),
+			all: Boolean(options.all),
+			maxPages: options.maxPages ? Number(options.maxPages) : undefined,
+		});
+		await autoSyncAfterWrite();
+		print(result, true);
+	});
 
 for (const kind of ["likes", "bookmarks"] as const) {
 	syncCommand
