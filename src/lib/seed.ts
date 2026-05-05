@@ -39,8 +39,8 @@ export function seedDemoData(db: Database.Database) {
   `);
 
 	const insertProfile = db.prepare(`
-    insert into profiles (id, handle, display_name, bio, followers_count, avatar_hue, avatar_url, created_at)
-    values (@id, @handle, @displayName, @bio, @followersCount, @avatarHue, @avatarUrl, @createdAt)
+    insert into profiles (id, handle, display_name, bio, followers_count, following_count, avatar_hue, avatar_url, created_at)
+    values (@id, @handle, @displayName, @bio, @followersCount, @followingCount, @avatarHue, @avatarUrl, @createdAt)
   `);
 
 	const insertTweet = db.prepare(`
@@ -104,6 +104,7 @@ export function seedDemoData(db: Database.Database) {
 			displayName: "Peter Steinberger",
 			bio: "Builds native software, tooling, and sharp little systems.",
 			followersCount: 21450,
+			followingCount: 0,
 			avatarHue: 18,
 			avatarUrl: svgAvatarDataUrl("PS", 18),
 			createdAt: now.toISOString(),
@@ -114,6 +115,7 @@ export function seedDemoData(db: Database.Database) {
 			displayName: "Sam Altman",
 			bio: "Working on AGI, energy, chips, and shipping the hard parts.",
 			followersCount: 3180000,
+			followingCount: 0,
 			avatarHue: 210,
 			avatarUrl: svgAvatarDataUrl("SA", 210),
 			createdAt: now.toISOString(),
@@ -124,6 +126,7 @@ export function seedDemoData(db: Database.Database) {
 			displayName: "Des Traynor",
 			bio: "Intercom co-founder. Product, writing, and oddly specific opinions.",
 			followersCount: 178000,
+			followingCount: 0,
 			avatarHue: 144,
 			avatarUrl: svgAvatarDataUrl("DT", 144),
 			createdAt: now.toISOString(),
@@ -134,6 +137,7 @@ export function seedDemoData(db: Database.Database) {
 			displayName: "Amelia N",
 			bio: "Design systems, prototypes, and good typography over noise.",
 			followersCount: 4200,
+			followingCount: 0,
 			avatarHue: 320,
 			avatarUrl: svgAvatarDataUrl("AN", 320),
 			createdAt: now.toISOString(),
@@ -144,6 +148,7 @@ export function seedDemoData(db: Database.Database) {
 			displayName: "Ava Wires",
 			bio: "Reports on infrastructure, AI policy, and the business of software.",
 			followersCount: 632000,
+			followingCount: 0,
 			avatarHue: 262,
 			avatarUrl: svgAvatarDataUrl("AW", 262),
 			createdAt: now.toISOString(),
@@ -154,6 +159,7 @@ export function seedDemoData(db: Database.Database) {
 			displayName: "Noah Builds",
 			bio: "Bootstrapped indie apps. Pragmatic, fast, allergic to dashboards.",
 			followersCount: 12600,
+			followingCount: 0,
 			avatarHue: 74,
 			avatarUrl: svgAvatarDataUrl("NB", 74),
 			createdAt: now.toISOString(),

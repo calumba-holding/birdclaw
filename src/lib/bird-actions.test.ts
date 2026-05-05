@@ -189,6 +189,7 @@ describe("bird action transport wrapper", () => {
 					description: "profile",
 					profileImageUrl: "https://example.com/avatar.jpg",
 					followersCount: "not-a-number",
+					followingCount: 77,
 					createdAt: "2025-01-02T03:04:05.000Z",
 				},
 			}),
@@ -212,6 +213,7 @@ describe("bird action transport wrapper", () => {
 			profile_image_url: "https://example.com/avatar.jpg",
 			public_metrics: {
 				followers_count: 0,
+				following_count: 77,
 			},
 			created_at: "2025-01-02T03:04:05.000Z",
 		});

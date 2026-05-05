@@ -103,7 +103,7 @@ SQLite only. Kysely schema in code, migrations checked into repo.
   - sync defaults
 - `profiles`
   - Twitter users/authors/participants
-  - keep bio, follower count, and lightweight influence fields queryable in canonical columns
+  - keep bio, follower/following counts, and lightweight influence fields queryable in canonical columns
   - DM surfaces should render sender bio and influence context from here without needing raw payload lookups
 - `blocks`
   - account-scoped local blocklist

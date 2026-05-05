@@ -20,6 +20,7 @@ export interface ProfileRecord {
 	displayName: string;
 	bio: string;
 	followersCount: number;
+	followingCount?: number;
 	avatarHue: number;
 	avatarUrl?: string;
 	createdAt: string;
@@ -255,6 +256,7 @@ export interface XurlPublicMetrics {
 	bookmark_count?: number;
 	impression_count?: number;
 	followers_count?: number;
+	following_count?: number;
 }
 
 export interface XurlMentionUser {

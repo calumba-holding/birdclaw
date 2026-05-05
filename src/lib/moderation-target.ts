@@ -15,12 +15,14 @@ export interface ResolvedModerationProfile {
 }
 
 export function toProfile(row: Record<string, unknown>): ProfileRecord {
+	const followingCount = Number(row.following_count ?? 0);
 	return {
 		id: String(row.id),
 		handle: String(row.handle),
 		displayName: String(row.display_name),
 		bio: String(row.bio),
 		followersCount: Number(row.followers_count),
+		...(Number.isFinite(followingCount) ? { followingCount } : {}),
 		avatarHue: Number(row.avatar_hue),
 		avatarUrl:
 			typeof row.avatar_url === "string" ? String(row.avatar_url) : undefined,
@@ -67,7 +69,7 @@ export function resolveLocalProfile(
 	const row = db
 		.prepare(
 			`
-      select id, handle, display_name, bio, followers_count, avatar_hue, avatar_url, created_at
+      select id, handle, display_name, bio, followers_count, following_count, avatar_hue, avatar_url, created_at
       from profiles
       where id = ? or handle = ?
       limit 1

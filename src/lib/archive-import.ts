@@ -476,6 +476,7 @@ export async function importArchive(
 			displayName: string;
 			bio: string;
 			followersCount: number;
+			followingCount: number;
 			avatarHue: number;
 			createdAt: string;
 		}
@@ -500,6 +501,7 @@ export async function importArchive(
 		displayName: accountPayload.displayName,
 		bio: accountPayload.bio,
 		followersCount: 0,
+		followingCount: 0,
 		avatarHue: 18,
 		createdAt: accountPayload.createdAt,
 	};
@@ -583,6 +585,7 @@ export async function importArchive(
 							conversationName || `Group DM ${externalParticipantIds.length}`,
 						bio: `Group DM with ${externalParticipantIds.length} participants`,
 						followersCount: 0,
+						followingCount: 0,
 						avatarHue: 220,
 						createdAt: accountPayload.createdAt,
 					});
@@ -598,6 +601,7 @@ export async function importArchive(
 						displayName: inferred.displayName,
 						bio: `Imported from archive user ${otherUserId}`,
 						followersCount: 0,
+						followingCount: 0,
 						avatarHue: 210,
 						createdAt: accountPayload.createdAt,
 					});
@@ -626,6 +630,7 @@ export async function importArchive(
 								displayName: inferred.displayName,
 								bio: `Imported from archive user ${senderId}`,
 								followersCount: 0,
+								followingCount: 0,
 								avatarHue: 240,
 								createdAt: accountPayload.createdAt,
 							});
@@ -745,6 +750,7 @@ export async function importArchive(
 			displayName: "Unknown",
 			bio: "Imported from archive collection metadata",
 			followersCount: 0,
+			followingCount: 0,
 			avatarHue: 210,
 			createdAt: accountPayload.createdAt,
 		});
@@ -758,8 +764,8 @@ export async function importArchive(
     values (?, ?, ?, ?, ?, 1, ?)
   `);
 	const insertProfile = db.prepare(`
-    insert into profiles (id, handle, display_name, bio, followers_count, avatar_hue, avatar_url, created_at)
-    values (?, ?, ?, ?, ?, ?, ?, ?)
+    insert into profiles (id, handle, display_name, bio, followers_count, following_count, avatar_hue, avatar_url, created_at)
+    values (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 	const insertTweet = db.prepare(`
     insert into tweets (
@@ -811,6 +817,7 @@ export async function importArchive(
 				profile.displayName,
 				profile.bio,
 				profile.followersCount,
+				profile.followingCount,
 				profile.avatarHue,
 				null,
 				profile.createdAt,

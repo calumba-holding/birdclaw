@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 - Add `--min-likes` and `--quality-reason` controls for tweet search quality filtering. Thanks @mvanhorn.
 - Add research mode for turning bookmarked Twitter threads into Markdown briefs, with shared `xurl`/`bird` tweet lookup fallback for thread expansion. Thanks @anupamchugh.
+- Store Twitter following counts on profiles and include them in JSONL backups.
 
 ### Changed
 
@@ -19,7 +20,6 @@ All notable changes to this project will be documented in this file.
 - Replace maintainer-local documentation links with repo-relative links and align the setup docs with the Node version file. Thanks @stainlu.
 - Resolve the `bird` transport from `PATH` before falling back to the local development checkout. Thanks @vyctorbrzezowski.
 - Use the existing Twitter web cookie fallback as the final `auto` transport for block and unblock actions. Thanks @pejmanjohn.
-
 ## 0.2.1 - 2026-04-27
 
 ### Changed

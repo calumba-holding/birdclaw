@@ -63,7 +63,7 @@ describe("database init", () => {
 			name: string;
 		}>;
 		expect(profileColumnNames.map((column) => column.name)).toEqual(
-			expect.arrayContaining(["avatar_url"]),
+			expect.arrayContaining(["following_count", "avatar_url"]),
 		);
 
 		const quotedIndex = db

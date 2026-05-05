@@ -188,7 +188,7 @@ function getExportRowSets(db: Database.Database) {
 			rows: rowsForQuery(
 				db,
 				`
-        select id, handle, display_name, bio, followers_count, avatar_hue, avatar_url, created_at
+        select id, handle, display_name, bio, followers_count, following_count, avatar_hue, avatar_url, created_at
         from profiles
         order by id
         `,
@@ -1002,13 +1002,14 @@ export async function importBackup({
 			db,
 			`
       insert into profiles (
-        id, handle, display_name, bio, followers_count, avatar_hue, avatar_url, created_at
-      ) values (?, ?, ?, ?, ?, ?, ?, ?)
+        id, handle, display_name, bio, followers_count, following_count, avatar_hue, avatar_url, created_at
+      ) values (?, ?, ?, ?, ?, coalesce(?, 0), ?, ?, ?)
       on conflict(id) do update set
         handle = coalesce(nullif(excluded.handle, ''), profiles.handle),
         display_name = coalesce(nullif(excluded.display_name, ''), profiles.display_name),
         bio = coalesce(nullif(excluded.bio, ''), profiles.bio),
         followers_count = max(profiles.followers_count, excluded.followers_count),
+        following_count = max(profiles.following_count, excluded.following_count),
         avatar_hue = case when profiles.avatar_hue = 0 then excluded.avatar_hue else profiles.avatar_hue end,
         avatar_url = coalesce(excluded.avatar_url, profiles.avatar_url),
         created_at = min(profiles.created_at, excluded.created_at)
@@ -1020,6 +1021,7 @@ export async function importBackup({
 				"display_name",
 				"bio",
 				"followers_count",
+				"following_count",
 				"avatar_hue",
 				"avatar_url",
 				"created_at",

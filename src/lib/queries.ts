@@ -37,12 +37,14 @@ function getInfluenceLabel(score: number) {
 }
 
 function toProfile(row: Record<string, unknown>): ProfileRecord {
+	const followingCount = Number(row.following_count ?? 0);
 	return {
 		id: String(row.id),
 		handle: String(row.handle),
 		displayName: String(row.display_name),
 		bio: String(row.bio),
 		followersCount: Number(row.followers_count),
+		...(Number.isFinite(followingCount) ? { followingCount } : {}),
 		avatarHue: Number(row.avatar_hue),
 		avatarUrl:
 			typeof row.avatar_url === "string" ? String(row.avatar_url) : undefined,
@@ -95,6 +97,7 @@ function buildEmbeddedTweet(
 		display_name: row[`${prefix}display_name`],
 		bio: row[`${prefix}bio`],
 		followers_count: row[`${prefix}followers_count`],
+		following_count: row[`${prefix}following_count`],
 		avatar_hue: row[`${prefix}avatar_hue`],
 		avatar_url: row[`${prefix}avatar_url`],
 		created_at: row[`${prefix}profile_created_at`],
@@ -359,6 +362,7 @@ export function listTimelineItems({
         p.display_name,
         p.bio,
         p.followers_count,
+        p.following_count,
         p.avatar_hue,
         p.avatar_url,
         p.created_at as profile_created_at,
@@ -372,6 +376,7 @@ export function listTimelineItems({
         rp.display_name as reply_display_name,
         rp.bio as reply_bio,
         rp.followers_count as reply_followers_count,
+        rp.following_count as reply_following_count,
         rp.avatar_hue as reply_avatar_hue,
         rp.avatar_url as reply_avatar_url,
         rp.created_at as reply_profile_created_at,
@@ -385,6 +390,7 @@ export function listTimelineItems({
         qp.display_name as quoted_display_name,
         qp.bio as quoted_bio,
         qp.followers_count as quoted_followers_count,
+        qp.following_count as quoted_following_count,
         qp.avatar_hue as quoted_avatar_hue,
         qp.avatar_url as quoted_avatar_url,
         qp.created_at as quoted_profile_created_at
@@ -410,6 +416,7 @@ export function listTimelineItems({
 			displayName: String(row.display_name),
 			bio: String(row.bio),
 			followersCount: Number(row.followers_count),
+			followingCount: Number(row.following_count ?? 0),
 			avatarHue: Number(row.avatar_hue),
 			avatarUrl:
 				typeof row.avatar_url === "string" ? String(row.avatar_url) : undefined,
@@ -427,6 +434,7 @@ export function listTimelineItems({
 								display_name: row.reply_display_name,
 								bio: row.reply_bio,
 								followers_count: row.reply_followers_count,
+								following_count: row.reply_following_count,
 								avatar_hue: row.reply_avatar_hue,
 								avatar_url: row.reply_avatar_url,
 								created_at: row.reply_profile_created_at,
@@ -441,6 +449,7 @@ export function listTimelineItems({
 								display_name: row.quoted_display_name,
 								bio: row.quoted_bio,
 								followers_count: row.quoted_followers_count,
+								following_count: row.quoted_following_count,
 								avatar_hue: row.quoted_avatar_hue,
 								avatar_url: row.quoted_avatar_url,
 								created_at: row.quoted_profile_created_at,
@@ -548,6 +557,7 @@ export function listDmConversations({
         p.display_name,
         p.bio,
         p.followers_count,
+        p.following_count,
         p.avatar_hue,
         p.avatar_url,
         p.created_at as profile_created_at,
@@ -590,6 +600,7 @@ export function listDmConversations({
 				displayName: String(row.display_name),
 				bio: String(row.bio),
 				followersCount,
+				followingCount: Number(row.following_count ?? 0),
 				avatarHue: Number(row.avatar_hue),
 				avatarUrl:
 					typeof row.avatar_url === "string"
@@ -665,6 +676,7 @@ export function getConversationThread(
         p.display_name,
         p.bio,
         p.followers_count,
+        p.following_count,
         p.avatar_hue,
         p.avatar_url,
         p.created_at as profile_created_at
@@ -692,6 +704,7 @@ export function getConversationThread(
 				display_name: row.display_name,
 				bio: row.bio,
 				followers_count: row.followers_count,
+				following_count: row.following_count,
 				avatar_hue: row.avatar_hue,
 				avatar_url: row.avatar_url,
 				created_at: row.profile_created_at,

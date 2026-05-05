@@ -50,6 +50,7 @@ describe("x profile sync helpers", () => {
 				"https://pbs.twimg.com/profile_images/42/demo_normal.jpg",
 			public_metrics: {
 				followers_count: 321,
+				following_count: 123,
 			},
 		});
 		expect(inserted.profile).toEqual(
@@ -58,6 +59,7 @@ describe("x profile sync helpers", () => {
 				handle: "sam",
 				displayName: "Sam Altman",
 				followersCount: 321,
+				followingCount: 123,
 			}),
 		);
 		expect(inserted.profile.avatarUrl).toContain("demo.jpg");
@@ -69,6 +71,7 @@ describe("x profile sync helpers", () => {
 			description: "new bio",
 			public_metrics: {
 				followers_count: 88,
+				following_count: 44,
 			},
 		});
 		expect(updated.profile).toEqual(
@@ -78,6 +81,7 @@ describe("x profile sync helpers", () => {
 				displayName: "Amelia New",
 				bio: "new bio",
 				followersCount: 88,
+				followingCount: 44,
 			}),
 		);
 	});
@@ -106,6 +110,42 @@ describe("x profile sync helpers", () => {
 				avatarUrl: first.profile.avatarUrl,
 			}),
 		);
+	});
+
+	it("preserves existing following count when later x user payload omits metrics", () => {
+		const db = makeTempHome();
+
+		upsertProfileFromXUser(db, {
+			id: "42",
+			username: "sam",
+			name: "Sam Altman",
+			public_metrics: {
+				followers_count: 321,
+				following_count: 123,
+			},
+		});
+		const updated = upsertProfileFromXUser(db, {
+			id: "42",
+			username: "sam",
+			name: "Sam Updated",
+			public_metrics: {
+				followers_count: 999,
+			},
+		});
+
+		expect(updated.profile).toEqual(
+			expect.objectContaining({
+				followersCount: 999,
+				followingCount: 123,
+			}),
+		);
+		expect(
+			db
+				.prepare(
+					"select followers_count, following_count from profiles where id = ?",
+				)
+				.get("profile_sam"),
+		).toEqual({ followers_count: 999, following_count: 123 });
 	});
 
 	it("falls back to username when x user payload omits a display name", () => {

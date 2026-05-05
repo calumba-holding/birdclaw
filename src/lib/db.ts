@@ -19,6 +19,7 @@ export interface ProfilesTable {
 	display_name: string;
 	bio: string;
 	followers_count: number;
+	following_count: number;
 	avatar_hue: number;
 	avatar_url: string | null;
 	created_at: string;
@@ -154,6 +155,7 @@ const BASE_SCHEMA_SQL = `
     display_name text not null,
     bio text not null,
     followers_count integer not null default 0,
+    following_count integer not null default 0,
     avatar_hue integer not null default 0,
     avatar_url text,
     created_at text not null
@@ -271,6 +273,7 @@ const INDEX_SQL = `
   create index if not exists idx_dm_conversations_account on dm_conversations(account_id, last_message_at desc);
   create index if not exists idx_dm_messages_conversation on dm_messages(conversation_id, created_at asc);
   create index if not exists idx_profiles_followers on profiles(followers_count desc);
+  create index if not exists idx_profiles_following on profiles(following_count desc);
   create index if not exists idx_blocks_account_created on blocks(account_id, created_at desc);
   create index if not exists idx_mutes_account_created on mutes(account_id, created_at desc);
   create index if not exists idx_ai_scores_updated on ai_scores(updated_at desc);
@@ -306,6 +309,11 @@ function ensureTweetMetadataColumns(db: BetterSqlite3.Database) {
 
 function ensureProfileAvatarColumns(db: BetterSqlite3.Database) {
 	const columnNames = getColumnNames(db, "profiles");
+	if (!columnNames.has("following_count")) {
+		db.exec(
+			"alter table profiles add column following_count integer not null default 0",
+		);
+	}
 	if (!columnNames.has("avatar_url")) {
 		db.exec("alter table profiles add column avatar_url text");
 	}

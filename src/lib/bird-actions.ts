@@ -80,6 +80,7 @@ function toBirdLookupUser(payload: Record<string, unknown>): XurlMentionUser {
 	}
 
 	const followersCount = Number(user.followersCount ?? 0);
+	const followingCount = Number(user.followingCount);
 	return {
 		id,
 		name:
@@ -95,6 +96,9 @@ function toBirdLookupUser(payload: Record<string, unknown>): XurlMentionUser {
 				: undefined,
 		public_metrics: {
 			followers_count: Number.isFinite(followersCount) ? followersCount : 0,
+			...(Number.isFinite(followingCount)
+				? { following_count: followingCount }
+				: {}),
 		},
 		created_at: typeof user.createdAt === "string" ? user.createdAt : undefined,
 	};

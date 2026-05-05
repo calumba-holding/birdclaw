@@ -27,12 +27,14 @@ export function randomAvatarHue(input: string) {
 }
 
 function toProfile(row: Record<string, unknown>): ProfileRecord {
+	const followingCount = Number(row.following_count ?? 0);
 	return {
 		id: String(row.id),
 		handle: String(row.handle),
 		displayName: String(row.display_name),
 		bio: String(row.bio),
 		followersCount: Number(row.followers_count),
+		...(Number.isFinite(followingCount) ? { followingCount } : {}),
 		avatarHue: Number(row.avatar_hue),
 		avatarUrl:
 			typeof row.avatar_url === "string" ? String(row.avatar_url) : undefined,
@@ -48,6 +50,11 @@ function updateExistingProfileFromUser(
 	const username = String(user.username ?? "").replace(/^@/, "");
 	const displayName = String(user.name ?? "").trim() || username;
 	const followersCount = Number(user.public_metrics?.followers_count ?? 0);
+	const hasFollowingCount =
+		typeof user.public_metrics?.following_count === "number";
+	const followingCount = hasFollowingCount
+		? (user.public_metrics?.following_count ?? null)
+		: null;
 	const bio = String(user.description ?? "");
 	const avatarUrl = normalizeAvatarUrl(user.profile_image_url);
 
@@ -58,15 +65,24 @@ function updateExistingProfileFromUser(
         display_name = ?,
         bio = ?,
         followers_count = ?,
+        following_count = coalesce(?, following_count),
         avatar_url = coalesce(?, avatar_url)
     where id = ?
     `,
-	).run(username, displayName, bio, followersCount, avatarUrl, profileId);
+	).run(
+		username,
+		displayName,
+		bio,
+		followersCount,
+		followingCount,
+		avatarUrl,
+		profileId,
+	);
 
 	const row = db
 		.prepare(
 			`
-      select id, handle, display_name, bio, followers_count, avatar_hue, avatar_url, created_at
+      select id, handle, display_name, bio, followers_count, following_count, avatar_hue, avatar_url, created_at
       from profiles
       where id = ?
       `,
@@ -111,6 +127,11 @@ export function upsertProfileFromXUser(
 
 	const displayName = String(user.name ?? "").trim() || username;
 	const followersCount = Number(user.public_metrics?.followers_count ?? 0);
+	const hasFollowingCount =
+		typeof user.public_metrics?.following_count === "number";
+	const followingCount = hasFollowingCount
+		? (user.public_metrics?.following_count ?? null)
+		: null;
 	const bio = String(user.description ?? "");
 	const avatarUrl = normalizeAvatarUrl(user.profile_image_url);
 	const createdAt = new Date().toISOString();
@@ -119,14 +140,18 @@ export function upsertProfileFromXUser(
 	db.prepare(
 		`
     insert into profiles (
-      id, handle, display_name, bio, followers_count, avatar_hue, avatar_url, created_at
-    ) values (?, ?, ?, ?, ?, ?, ?, ?)
+      id, handle, display_name, bio, followers_count, following_count, avatar_hue, avatar_url, created_at
+    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
     on conflict(id) do update set
-      handle = excluded.handle,
-      display_name = excluded.display_name,
-      bio = excluded.bio,
-      followers_count = excluded.followers_count,
-      avatar_url = coalesce(excluded.avatar_url, profiles.avatar_url)
+	      handle = excluded.handle,
+	      display_name = excluded.display_name,
+	      bio = excluded.bio,
+	      followers_count = excluded.followers_count,
+	      following_count = case
+	        when ? then excluded.following_count
+	        else profiles.following_count
+	      end,
+	      avatar_url = coalesce(excluded.avatar_url, profiles.avatar_url)
     `,
 	).run(
 		profileId,
@@ -134,9 +159,11 @@ export function upsertProfileFromXUser(
 		displayName,
 		bio,
 		followersCount,
+		followingCount ?? 0,
 		avatarHue,
 		avatarUrl,
 		createdAt,
+		hasFollowingCount ? 1 : 0,
 	);
 
 	return {
@@ -146,6 +173,7 @@ export function upsertProfileFromXUser(
 			displayName,
 			bio,
 			followersCount,
+			followingCount: followingCount ?? 0,
 			avatarHue,
 			avatarUrl: avatarUrl ?? undefined,
 			createdAt,
@@ -162,7 +190,7 @@ export function ensureStubProfileForXUser(
 	const existingRow = db
 		.prepare(
 			`
-      select id, handle, display_name, bio, followers_count, avatar_hue, avatar_url, created_at
+      select id, handle, display_name, bio, followers_count, following_count, avatar_hue, avatar_url, created_at
       from profiles
       where id = ?
       limit 1
@@ -183,8 +211,8 @@ export function ensureStubProfileForXUser(
 	db.prepare(
 		`
     insert into profiles (
-      id, handle, display_name, bio, followers_count, avatar_hue, avatar_url, created_at
-    ) values (?, ?, ?, '', 0, ?, null, ?)
+      id, handle, display_name, bio, followers_count, following_count, avatar_hue, avatar_url, created_at
+    ) values (?, ?, ?, '', 0, 0, ?, null, ?)
     `,
 	).run(profileId, handle, handle, avatarHue, createdAt);
 
@@ -195,6 +223,7 @@ export function ensureStubProfileForXUser(
 			displayName: handle,
 			bio: "",
 			followersCount: 0,
+			followingCount: 0,
 			avatarHue,
 			createdAt,
 		},
