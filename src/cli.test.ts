@@ -379,7 +379,7 @@ describe("cli", () => {
 
 		await runCli(["node", "birdclaw", "--version"]);
 
-		expect(stdoutWriteMock).toHaveBeenCalledWith("0.2.1\n");
+		expect(stdoutWriteMock).toHaveBeenCalledWith("0.3.0\n");
 		expect(exitMock).toHaveBeenCalledWith(0);
 		stdoutWriteMock.mockRestore();
 	});

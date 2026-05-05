@@ -5,13 +5,14 @@ import { withSanitizedNodeOptions } from "./sanitize-node-options.mjs";
 
 const cwd = process.cwd();
 const home = process.env.BIRDCLAW_HOME || path.join(cwd, ".playwright-home");
+const port = process.env.BIRDCLAW_PLAYWRIGHT_PORT || "3000";
 const viteBin = path.join(cwd, "node_modules", "vite", "bin", "vite.js");
 
 rmSync(home, { recursive: true, force: true });
 
 const child = spawn(
 	process.execPath,
-	[viteBin, "dev", "--port", "3000", "--host", "127.0.0.1"],
+	[viteBin, "dev", "--port", port, "--host", "127.0.0.1"],
 	{
 		cwd,
 		stdio: "inherit",

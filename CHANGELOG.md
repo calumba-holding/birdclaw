@@ -1,25 +1,31 @@
 # CHANGELOG
 
-All notable changes to this project will be documented in this file.
-
 ## Unreleased
+
+## 0.3.0 - 2026-05-05
 
 ### Added
 
-- Add `--min-likes` and `--quality-reason` controls for tweet search quality filtering. Thanks @mvanhorn.
 - Add research mode for turning bookmarked Twitter threads into Markdown briefs, with shared `xurl`/`bird` tweet lookup fallback for thread expansion. Thanks @anupamchugh.
+- Add live home timeline and mention-thread sync commands so local triage can pull current `bird` context into the SQLite store.
+- Add search snippets for tweet and DM results, including deterministic DM snippets when multiple messages in a conversation match. Thanks @mvanhorn.
+- Add `--min-likes` and `--quality-reason` controls for tweet search quality filtering. Thanks @mvanhorn.
 - Store Twitter following counts on profiles and include them in JSONL backups.
 
 ### Changed
 
 - Use the native TypeScript preview compiler for the `typecheck` script.
+- Refresh TypeScript and related development dependencies.
 
 ### Fixed
 
-- Stabilize the presenter timestamp test across local time zones. Thanks @pejmanjohn.
-- Replace maintainer-local documentation links with repo-relative links and align the setup docs with the Node version file. Thanks @stainlu.
-- Resolve the `bird` transport from `PATH` before falling back to the local development checkout. Thanks @vyctorbrzezowski.
 - Use the existing Twitter web cookie fallback as the final `auto` transport for block and unblock actions. Thanks @pejmanjohn.
+- Resolve the `bird` transport from `PATH` before falling back to the local development checkout. Thanks @vyctorbrzezowski.
+- Stabilize the presenter timestamp test across local time zones. Thanks @pejmanjohn.
+- Clean up the DMs route render test so CI does not leave React work running after jsdom teardown.
+- Allow Playwright e2e runs to use an alternate local port when `3000` is already occupied.
+- Replace maintainer-local documentation links with repo-relative links and align the setup docs with the Node version file. Thanks @stainlu.
+
 ## 0.2.1 - 2026-04-27
 
 ### Changed
