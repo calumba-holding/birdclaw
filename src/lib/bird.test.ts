@@ -420,8 +420,8 @@ describe("bird transport wrapper", () => {
 
 	it("looks up tweets by id through bird read", async () => {
 		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
-		execFileAsyncMock.mockResolvedValueOnce({
-			stdout: JSON.stringify({
+		mockBirdStdoutOnce(
+			JSON.stringify({
 				id: "tweet_1",
 				text: "read from bird",
 				createdAt: "Tue May 05 15:07:12 +0000 2026",
@@ -432,7 +432,7 @@ describe("bird transport wrapper", () => {
 				quotedTweet: { id: "tweet_quote" },
 				likeCount: 9,
 			}),
-		});
+		);
 		const { lookupTweetsByIdsViaBird } = await import("./bird");
 
 		await expect(lookupTweetsByIdsViaBird(["tweet_1"])).resolves.toEqual({
@@ -451,11 +451,7 @@ describe("bird transport wrapper", () => {
 			includes: { users: [{ id: "42", username: "sam", name: "Sam" }] },
 			meta: expect.objectContaining({ result_count: 1 }),
 		});
-		expect(execFileAsyncMock).toHaveBeenCalledWith(
-			"/tmp/bird",
-			["read", "tweet_1", "--json"],
-			expect.objectContaining({ maxBuffer: expect.any(Number) }),
-		);
+		expectBirdCommandCall(1, ["read", "tweet_1", "--json"]);
 	});
 
 	it("rejects unexpected direct messages json", async () => {

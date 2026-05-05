@@ -147,11 +147,25 @@ function parseBirdJson(stdout: string) {
 	}
 }
 
+function formatBirdCommandError(error: unknown, birdCommand: string) {
+	if (
+		error instanceof Error &&
+		"code" in error &&
+		(error as { code?: unknown }).code === "ENOENT"
+	) {
+		return new Error(
+			`bird CLI not found at ${birdCommand}. Install @steipete/bird or set BIRDCLAW_BIRD_COMMAND / mentions.birdCommand to a valid bird binary.`,
+		);
+	}
+
+	return error;
+}
+
 async function runBirdJsonCommand(args: string[], timeoutMs?: number) {
 	const tempDir = mkdtempSync(join(tmpdir(), "birdclaw-bird-"));
 	const stdoutPath = join(tempDir, "stdout.json");
+	const birdCommand = getBirdCommand();
 	try {
-		const birdCommand = getBirdCommand();
 		const shellScript = 'out="$1"; shift; exec "$@" > "$out"';
 		await execFileAsync(
 			"/bin/bash",
@@ -159,6 +173,8 @@ async function runBirdJsonCommand(args: string[], timeoutMs?: number) {
 			{ maxBuffer: BIRD_JSON_MAX_BUFFER_BYTES, timeout: timeoutMs },
 		);
 		return readFileSync(stdoutPath, "utf8");
+	} catch (error) {
+		throw formatBirdCommandError(error, birdCommand);
 	} finally {
 		rmSync(tempDir, { recursive: true, force: true });
 	}
