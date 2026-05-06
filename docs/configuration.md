@@ -1,0 +1,125 @@
+---
+title: Configuration
+description: "birdclaw config files, env vars, transport precedence, and multi-account profiles."
+---
+
+# Configuration
+
+birdclaw reads configuration from three layers, in this precedence:
+
+1. **CLI flags** — `--db`, `--profile`, `--config`, `--json`, `--plain`, etc.
+2. **Environment variables** — `BIRDCLAW_HOME`, `BIRDCLAW_DB`, `BIRDCLAW_PROFILE`, `BIRDCLAW_TRANSPORT`, `BIRDCLAW_LOG`, `NO_COLOR`.
+3. **Config files** — project-level `./.birdclawrc.json5`, then user-level `~/.birdclaw/config.json`.
+
+## Storage root
+
+The default root is `~/.birdclaw`. It holds:
+
+```text
+~/.birdclaw/
+  birdclaw.sqlite              # canonical local truth
+  config.json                  # user config
+  media/                       # original media cache
+  media/thumbs/avatars/        # avatar cache
+  audit/                       # JSONL audit logs (e.g. bookmarks-sync.jsonl)
+  logs/                        # launchd stdout/stderr
+  locks/                       # job lock files
+```
+
+Override the root for one process:
+
+```bash
+export BIRDCLAW_HOME=/path/to/custom/root
+```
+
+The Playwright test home is `.playwright-home` in the repo, which is why CI never touches the production root.
+
+## Config file
+
+`~/.birdclaw/config.json` controls live transport, scheduled jobs, mention sourcing, and backup auto-sync.
+
+```json
+{
+  "actions": {
+    "transport": "auto"
+  },
+  "mentions": {
+    "dataSource": "bird",
+    "birdCommand": "/Users/steipete/Projects/bird/bird"
+  },
+  "backup": {
+    "repoPath": "/Users/steipete/Projects/backup-birdclaw",
+    "remote": "https://github.com/steipete/backup-birdclaw.git",
+    "autoSync": true,
+    "staleAfterSeconds": 900
+  }
+}
+```
+
+### `actions.transport`
+
+- `auto` — try `bird` first for block/unblock/mute, fall back to `xurl`, then to the cookie-backed `xweb` path
+- `bird` — force `bird`
+- `xurl` — force `xurl`; verifies through `bird status` before mutating SQLite
+
+Twitter still rejects pure OAuth2 block writes for many accounts, so `auto` is the safe default.
+
+### `mentions.dataSource`
+
+- `birdclaw` — local cache only
+- `bird` — refresh through `bird mentions --json`, normalize, cache in SQLite
+- `xurl` — refresh through `xurl mentions`, cache the response shape
+
+`mentions.birdCommand` overrides the `bird` binary path when you want to point at a non-`PATH` build.
+
+### `backup.*`
+
+See [Backup](backup.md). When `autoSync` is enabled, read commands pull + merge from Git only when the last check is stale, and data-changing commands push back automatically. Set `BIRDCLAW_BACKUP_AUTO_SYNC=0` to disable for one process.
+
+## Environment variables
+
+| Variable | Purpose |
+| -------- | ------- |
+| `BIRDCLAW_HOME` | Override the storage root (`~/.birdclaw` by default) |
+| `BIRDCLAW_DB` | Point at a custom SQLite file path |
+| `BIRDCLAW_PROFILE` | Pick a non-default profile/account |
+| `BIRDCLAW_TRANSPORT` | Force `auto`, `xurl`, `bird`, `official`, or `xweb` for one process |
+| `BIRDCLAW_LOG` | Increase log verbosity |
+| `BIRDCLAW_DISABLE_LIVE_WRITES` | Set to `1` to block any live mutation (used by tests and CI) |
+| `BIRDCLAW_BACKUP_AUTO_SYNC` | Set to `0` to disable auto-sync for one process |
+| `NO_COLOR` | Disable ANSI color in human output |
+| `OPENAI_API_KEY` | Enable inbox scoring and low-signal filtering |
+
+`BIRDCLAW_DISABLE_LIVE_WRITES=1` is set automatically in CI and Playwright runs so test code can never publish a tweet, send a DM, or block an account.
+
+## Multi-account
+
+birdclaw was built around multiple accounts in a single shared database from day one. Pass `--account <id>` on commands that need to disambiguate (`blocks`, `mutes`, `mentions export`, `dms`), or set:
+
+```bash
+export BIRDCLAW_PROFILE=acct_primary
+```
+
+Per-account state — cursors, transport preferences, last-sync watermarks, OpenAI score caches — lives inside the same `birdclaw.sqlite`. There is no per-account directory tree.
+
+## Transport precedence
+
+1. **archive** — local archive zip / extracted folder (read-only)
+2. **xurl** — official-API live reads/writes
+3. **bird** — cookie-backed reads/writes (DMs, mentions, block fallback)
+4. **official** — direct API client (planned)
+5. **xweb** — experimental low-level web cookie session (block/unblock fallback only)
+
+`auto` mode walks this list in order. Force one transport for one command with `--mode <kind>` on `sync` / `mentions export`, or `--transport <kind>` on `ban` / `unban` / `mute` / `unmute`.
+
+## Disabling live writes
+
+For dry runs, demos, or development against a fresh archive:
+
+```bash
+export BIRDCLAW_DISABLE_LIVE_WRITES=1
+birdclaw compose post "this will not actually post"
+birdclaw blocks add @someone --account acct_primary
+```
+
+Both commands record the intent locally where applicable but skip every transport call. Tests and CI rely on this exact mechanism.

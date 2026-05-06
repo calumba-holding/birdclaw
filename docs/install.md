@@ -1,0 +1,118 @@
+---
+title: Install
+description: "Install birdclaw via Homebrew, npm, or from source. Optional xurl and bird improve live transport coverage."
+---
+
+# Install
+
+`birdclaw` ships as a Node CLI plus a local web app. Pick whichever path fits the machine.
+
+## Requirements
+
+- **Node.js** 25.8.1 (managed via `fnm`, `nvm`, or `volta`)
+- **pnpm** 10.x for source installs
+- **macOS** is recommended for archive autodiscovery (Spotlight `mdfind`); Linux works for everything else
+- **SQLite** is bundled via `better-sqlite3` — no system install needed
+
+Optional but encouraged:
+
+- [`xurl`](https://github.com/xdevplatform/xurl) — official-API live reads/writes (likes, bookmarks, blocks, mutes, posting)
+- [`bird`](https://github.com/steipete/bird) — cookie-backed reads/writes for surfaces where `xurl` is rate-limited or unavailable
+- `OPENAI_API_KEY` — inbox scoring and low-signal filtering
+
+birdclaw still works in pure local/archive mode without any of the above.
+
+## Homebrew (macOS, Linux)
+
+```bash
+brew install steipete/tap/birdclaw
+birdclaw --version
+```
+
+The Homebrew formula lives in `steipete/homebrew-tap` and installs the `birdclaw` binary plus a launchd plist target.
+
+## npm / pnpm
+
+```bash
+pnpm add -g birdclaw
+# or
+npm install -g birdclaw
+
+birdclaw --version
+```
+
+The package is published as [`birdclaw`](https://www.npmjs.com/package/birdclaw) on npm.
+
+## From source
+
+```bash
+git clone https://github.com/steipete/birdclaw.git
+cd birdclaw
+fnm use
+pnpm install
+pnpm build
+node ./bin/birdclaw.mjs --version
+```
+
+`fnm use` reads the version from `.node-version`. Source builds run the same `tsx`-based entrypoint as the published binary.
+
+## Verify the install
+
+```bash
+birdclaw --version
+birdclaw auth status --json
+birdclaw db stats --json
+```
+
+`auth status` prints which transports are wired up (`archive`, `xurl`, `bird`, `xweb`) and which account is currently active.
+
+## Optional: xurl
+
+```bash
+brew install xdevplatform/tap/xurl
+xurl auth login
+```
+
+After `xurl auth login` succeeds, `birdclaw` will pick `xurl` first for live reads and writes. No extra wiring needed — `birdclaw` shells out to `xurl` rather than owning `~/.xurl` itself.
+
+## Optional: bird
+
+```bash
+brew install steipete/tap/bird
+bird auth import-cookies
+```
+
+Once `bird` is in `PATH`, `birdclaw` uses it as the cookie-backed fallback. This matters most for DMs, mentions, blocks, and any block/unblock flow where Twitter rejects OAuth2 writes.
+
+If you only run birdclaw via `launchd` (`jobs install-bookmarks-launchd`), `bird` may need its `AUTH_TOKEN`/`CT0` exported via an env file because launchd does not see your interactive browser session. See [Jobs](jobs.md#env-files-for-launchd).
+
+## Optional: OpenAI
+
+```bash
+export OPENAI_API_KEY="sk-..."
+```
+
+Add it to `~/.profile` or your shell rc to persist. The inbox uses OpenAI for low-signal scoring; without the key, `inbox --score` is a no-op and the heuristic ranker still works.
+
+## Updating
+
+- **Homebrew:** `brew upgrade birdclaw`.
+- **npm:** `pnpm up -g birdclaw` (or `npm i -g birdclaw@latest`).
+- **Source:** `git pull && pnpm install && pnpm build`.
+
+The local SQLite store is forward-compatible across point releases. Long-running schema migrations run on startup; `birdclaw db stats --json` reports the current schema version.
+
+## Uninstall
+
+```bash
+# Homebrew
+brew uninstall birdclaw
+
+# npm
+pnpm rm -g birdclaw
+
+# Optional: also remove local data
+rm -rf ~/.birdclaw
+```
+
+The local data root defaults to `~/.birdclaw` (override via `BIRDCLAW_HOME`). Removing it deletes your imported archive, media cache, and live cache. Backup shards are stored separately if you set up [`backup sync`](backup.md).
