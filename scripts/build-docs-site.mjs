@@ -102,10 +102,17 @@ for (const page of pages) {
 }
 
 fs.writeFileSync(path.join(outDir, "favicon.svg"), faviconSvg(), "utf8");
+copyStaticAsset("social-card.svg");
+copyStaticAsset("social-card.png");
 fs.writeFileSync(path.join(outDir, ".nojekyll"), "", "utf8");
 if (cname) fs.writeFileSync(path.join(outDir, "CNAME"), cname, "utf8");
 validateLinks(outDir);
 console.log(`built docs site: ${path.relative(root, outDir)}`);
+
+function copyStaticAsset(name) {
+	const source = path.join(docsDir, name);
+	if (fs.existsSync(source)) fs.copyFileSync(source, path.join(outDir, name));
+}
 
 function readCname() {
 	for (const candidate of [
@@ -497,6 +504,9 @@ function layout({ page, html, toc, prev, next, sectionName }) {
 			? productDescription
 			: `${page.title} — ${productName} CLI documentation.`);
 	const canonicalUrl = pageCanonicalUrl(page);
+	const socialImage = siteBase
+		? `${siteBase}/social-card.png`
+		: `${rootPrefix}social-card.png`;
 	const socialMeta = [
 		["link", "rel", "canonical", "href", canonicalUrl],
 		["meta", "property", "og:type", "content", "website"],
@@ -504,9 +514,13 @@ function layout({ page, html, toc, prev, next, sectionName }) {
 		["meta", "property", "og:title", "content", titleSuffix],
 		["meta", "property", "og:description", "content", description],
 		["meta", "property", "og:url", "content", canonicalUrl],
-		["meta", "name", "twitter:card", "content", "summary"],
+		["meta", "property", "og:image", "content", socialImage],
+		["meta", "property", "og:image:width", "content", "1200"],
+		["meta", "property", "og:image:height", "content", "630"],
+		["meta", "name", "twitter:card", "content", "summary_large_image"],
 		["meta", "name", "twitter:title", "content", titleSuffix],
 		["meta", "name", "twitter:description", "content", description],
+		["meta", "name", "twitter:image", "content", socialImage],
 	]
 		.map(tagHtml)
 		.join("\n  ");
@@ -669,14 +683,11 @@ function withStash(code, patterns) {
 		working = working.replace(re, (match) => {
 			const idx = stash.length;
 			stash.push(`<span class="${cls}">${escapeHtml(match)}</span>`);
-			return `\u0000${idx}\u0000`;
+			return stashToken(idx);
 		});
 	}
 	let escaped = escapeHtml(working);
-	escaped = escaped.replace(
-		new RegExp(`\u0000(\\d+)\u0000`, "g"),
-		(_, i) => stash[Number(i)],
-	);
+	escaped = restoreStashTokens(escaped, stash);
 	return escaped;
 }
 
@@ -702,7 +713,7 @@ function highlightShellLine(line) {
 	const stashAdd = (match, cls) => {
 		const idx = stash.length;
 		stash.push(`<span class="${cls}">${escapeHtml(match)}</span>`);
-		return `\u0000${idx}\u0000`;
+		return stashToken(idx);
 	};
 	working = working.replace(/(?:'[^']*'|"[^"]*")/g, (m) => stashAdd(m, "hl-s"));
 	working = working.replace(/\s#.*$/g, (m) => stashAdd(m, "hl-c"));
@@ -716,11 +727,18 @@ function highlightShellLine(line) {
 	);
 	working = working.replace(/\b(\d+(?:\.\d+)?)\b/g, (m) => stashAdd(m, "hl-n"));
 	let escaped = escapeHtml(working);
-	escaped = escaped.replace(
-		new RegExp(`\u0000(\\d+)\u0000`, "g"),
-		(_, i) => stash[Number(i)],
-	);
-	return escaped;
+	return restoreStashTokens(escaped, stash);
+}
+
+function stashToken(idx) {
+	return String.fromCharCode(0xe000 + idx);
+}
+
+function restoreStashTokens(value, stash) {
+	return value.replace(/[\ue000-\uf8ff]/g, (token) => {
+		const idx = token.charCodeAt(0) - 0xe000;
+		return stash[idx] ?? "";
+	});
 }
 
 function highlightJson(code) {
