@@ -70,12 +70,45 @@ describe("avatar cache", () => {
 	});
 
 	it("maps cached extension types", () => {
+		expect(__test__.getContentTypeFromExtension(".png")).toBe("image/png");
 		expect(__test__.getContentTypeFromExtension(".webp")).toBe("image/webp");
+		expect(__test__.getContentTypeFromExtension(".gif")).toBe("image/gif");
+		expect(__test__.getContentTypeFromExtension(".svg")).toBe("image/svg+xml");
+		expect(__test__.getContentTypeFromExtension(".jpg")).toBe("image/jpeg");
 		expect(
 			__test__.getExtensionFromAvatarUrl("https://pbs.twimg.com/a.gif"),
 		).toBe(".gif");
+		expect(
+			__test__.getExtensionFromAvatarUrl("https://pbs.twimg.com/a.webp"),
+		).toBe(".webp");
+		expect(
+			__test__.getExtensionFromAvatarUrl("https://pbs.twimg.com/a.svg"),
+		).toBe(".svg");
+		expect(
+			__test__.getExtensionFromAvatarUrl("https://pbs.twimg.com/a.jpeg"),
+		).toBe(".jpg");
 		expect(__test__.getExtensionFromAvatarUrl("broken")).toBe(".jpg");
 		expect(__test__.sanitizeFileToken("profile:user/1")).toBe("profile_user_1");
+		expect(
+			getAvatarCachePath("profile_png", "data:image/png;base64,aGk="),
+		).toMatch(/\.png$/);
+		expect(
+			getAvatarCachePath("profile_webp", "data:image/webp;base64,aGk="),
+		).toMatch(/\.webp$/);
+		expect(
+			getAvatarCachePath("profile_gif", "data:image/gif;base64,aGk="),
+		).toMatch(/\.gif$/);
+		expect(
+			getAvatarCachePath("profile_unknown", "data:image/bmp;base64,aGk="),
+		).toMatch(/\.jpg$/);
+		expect(__test__.decodeDataUrl("data:;base64,aGk=")).toMatchObject({
+			contentType: "application/octet-stream",
+			buffer: Buffer.from("hi"),
+		});
+		expect(__test__.decodeDataUrl("data:text/plain,hello")).toMatchObject({
+			contentType: "text/plain",
+			buffer: Buffer.from("hello"),
+		});
 	});
 
 	it("fetches remote avatars once and then serves the cached file", async () => {
@@ -204,5 +237,35 @@ describe("avatar cache", () => {
 		await expect(readCachedAvatar("profile_fail")).rejects.toThrow(
 			"Avatar fetch failed with 404",
 		);
+	});
+
+	it("uses jpeg as the default remote avatar content type", async () => {
+		const tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-avatar-"));
+		tempDirs.push(tempDir);
+		process.env.BIRDCLAW_HOME = tempDir;
+
+		const db = getNativeDb();
+		db.prepare(
+			"insert into profiles (id, handle, display_name, bio, followers_count, avatar_hue, avatar_url, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
+		).run(
+			"profile_jpeg",
+			"jpeg",
+			"Jpeg",
+			"",
+			0,
+			18,
+			"https://pbs.twimg.com/profile_images/jpeg/avatar",
+			"2026-03-08T12:00:00.000Z",
+		);
+
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response(new Uint8Array([1, 2, 3]))),
+		);
+
+		const avatar = await readCachedAvatar("profile_jpeg");
+
+		expect(avatar?.contentType).toBe("image/jpeg");
+		expect(avatar?.cachePath).toMatch(/\.jpg$/);
 	});
 });

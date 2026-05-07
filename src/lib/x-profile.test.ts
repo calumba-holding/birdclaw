@@ -148,6 +148,84 @@ describe("x profile sync helpers", () => {
 		).toEqual({ followers_count: 999, following_count: 123 });
 	});
 
+	it("persists rich profile metadata from x user payloads", () => {
+		const db = makeTempHome();
+
+		const inserted = upsertProfileFromXUser(db, {
+			id: "888",
+			username: "@rich",
+			name: "Rich Profile",
+			description: "Bio with https://t.co/site",
+			location: " Vienna ",
+			verified: true,
+			entities: {
+				url: {
+					urls: [
+						null,
+						{
+							expanded_url: "https://rich.example",
+						},
+					],
+				},
+				description: {
+					urls: [
+						{
+							expandedUrl: "https://bio.example",
+						},
+					],
+				},
+			},
+			public_metrics: {
+				followers_count: 5,
+			},
+		});
+
+		expect(inserted.profile).toEqual(
+			expect.objectContaining({
+				id: "profile_user_888",
+				handle: "rich",
+				location: "Vienna",
+				url: "https://rich.example",
+				verifiedType: "verified",
+				followingCount: 0,
+				entities: expect.objectContaining({
+					url: expect.any(Object),
+				}),
+			}),
+		);
+
+		const updated = upsertProfileFromXUser(db, {
+			id: "888",
+			username: "rich",
+			name: "Rich Updated",
+			location: "",
+			url: "https://fallback.example",
+			verified_type: "Business",
+			entities: {
+				url: {
+					urls: [
+						{
+							expandedUrl: "https://entity.example",
+						},
+					],
+				},
+			},
+			public_metrics: {
+				followers_count: 9,
+			},
+		});
+
+		expect(updated.profile).toEqual(
+			expect.objectContaining({
+				displayName: "Rich Updated",
+				location: "Vienna",
+				url: "https://entity.example",
+				verifiedType: "business",
+				followingCount: 0,
+			}),
+		);
+	});
+
 	it("records profile snapshots and bio entities during upserts", () => {
 		const db = makeTempHome();
 
@@ -244,6 +322,43 @@ describe("x profile sync helpers", () => {
 				.prepare("select count(*) as count from profiles where id = ?")
 				.get("profile_user_999"),
 		).toEqual({ count: 1 });
+	});
+
+	it("reads sparse existing stub rows without optional profile fields", () => {
+		const db = makeTempHome();
+		db.prepare(
+			`
+      insert into profiles (
+        id, handle, display_name, bio, followers_count, following_count,
+        avatar_hue, avatar_url, location, url, verified_type, entities_json,
+        created_at
+      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+		).run(
+			"profile_user_777",
+			"user_777",
+			"user_777",
+			"",
+			0,
+			"oops",
+			10,
+			null,
+			"",
+			"",
+			"",
+			"[]",
+			"2026-05-01T00:00:00.000Z",
+		);
+
+		expect(ensureStubProfileForXUser(db, "777").profile).toEqual({
+			id: "profile_user_777",
+			handle: "user_777",
+			displayName: "user_777",
+			bio: "",
+			followersCount: 0,
+			avatarHue: 10,
+			createdAt: "2026-05-01T00:00:00.000Z",
+		});
 	});
 
 	it("rejects malformed x user payloads", () => {

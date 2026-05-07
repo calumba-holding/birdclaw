@@ -232,4 +232,46 @@ describe("bird action transport wrapper", () => {
 		await expect(lookupProfileViaBird("@missing")).resolves.toBeNull();
 		await expect(lookupProfileViaBird("@missing")).resolves.toBeNull();
 	});
+
+	it("normalizes optional profile fields from bird user payloads", async () => {
+		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
+		execFileAsyncMock.mockResolvedValueOnce({
+			stdout: JSON.stringify({
+				user: {
+					id: "42",
+					username: " @sam ",
+					name: "Sam",
+					description: 123,
+					location: "Vienna",
+					url: "https://example.com",
+					verified: true,
+					verified_type: "business",
+					entities: { url: { urls: [] } },
+					affiliation: { description: "Blacksmith" },
+					followersCount: 12,
+					followingCount: "not-a-number",
+				},
+			}),
+		});
+
+		const { lookupProfileViaBird } = await import("./bird-actions");
+
+		await expect(lookupProfileViaBird("@sam")).resolves.toEqual({
+			id: "42",
+			username: "@sam",
+			name: "Sam",
+			description: undefined,
+			location: "Vienna",
+			url: "https://example.com",
+			verified: true,
+			verified_type: "business",
+			profile_image_url: undefined,
+			entities: { url: { urls: [] } },
+			affiliation: { description: "Blacksmith" },
+			public_metrics: {
+				followers_count: 12,
+			},
+			created_at: undefined,
+		});
+	});
 });

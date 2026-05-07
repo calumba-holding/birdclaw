@@ -255,6 +255,253 @@ describe("whois", () => {
 		});
 	});
 
+	it("covers profile scoring helper edge cases", async () => {
+		const { __test__ } = await import("./whois");
+		const profile = {
+			id: "profile_user_42",
+			handle: "founder",
+			displayName: "Founder Person",
+			bio: "Working on reliable CI",
+			followersCount: 5000,
+			avatarHue: 120,
+			location: "London",
+			url: "https://current.example",
+			verifiedType: "business",
+			entities: {
+				description: {
+					urls: [null, { expanded_url: "https://bio.example" }, { url: "" }],
+				},
+			},
+			affiliations: [
+				{
+					organizationProfileId: "profile_user_current",
+					organizationName: "CurrentCo",
+					organizationHandle: "currentco",
+					label: "CurrentCo",
+					url: "https://current.example",
+					source: "bird",
+					firstSeenAt: "2026-05-01T00:00:00.000Z",
+					lastSeenAt: "2026-05-01T00:00:00.000Z",
+					isActive: true,
+				},
+			],
+			createdAt: "2026-01-01T00:00:00.000Z",
+		};
+		const sender = {
+			id: "profile_me",
+			handle: "steipete",
+			displayName: "Peter",
+			bio: "",
+			followersCount: 1,
+			avatarHue: 1,
+			createdAt: "2026-01-01T00:00:00.000Z",
+		};
+		const conversation = {
+			id: "dm_helper",
+			accountId: "acct_primary",
+			accountHandle: "@steipete",
+			title: "Founder Person",
+			lastMessageAt: "2026-05-01T12:00:00.000Z",
+			lastMessagePreview: "oldco link",
+			unreadCount: 0,
+			needsReply: false,
+			influenceScore: 10,
+			influenceLabel: "medium",
+			participant: profile,
+			matches: [
+				{
+					before: [
+						{
+							id: "m_before",
+							conversationId: "dm_helper",
+							text: "see https://t.co/old",
+							createdAt: "2026-05-01T11:59:00.000Z",
+							direction: "inbound" as const,
+							isReplied: false,
+							mediaCount: 0,
+							sender: profile,
+						},
+					],
+					message: {
+						id: "m_hit",
+						conversationId: "dm_helper",
+						text: "oldco founder",
+						createdAt: "2026-05-01T12:00:00.000Z",
+						direction: "inbound" as const,
+						isReplied: false,
+						mediaCount: 0,
+						sender: profile,
+					},
+					after: [
+						{
+							id: "m_after",
+							conversationId: "dm_helper",
+							text: "done",
+							createdAt: "2026-05-01T12:01:00.000Z",
+							direction: "outbound" as const,
+							isReplied: true,
+							mediaCount: 0,
+							sender,
+						},
+					],
+				},
+			],
+		};
+		const snapshots = [
+			{
+				profileId: "profile_user_42",
+				snapshotHash: "hash",
+				observedAt: "2026-04-01T00:00:00.000Z",
+				lastSeenAt: "2026-04-01T00:00:00.000Z",
+				source: "bird",
+				handle: "oldfounder",
+				displayName: "Old Founder",
+				bio: "OldCo co-founder",
+				location: "Vienna",
+				url: "https://oldco.example",
+				verifiedType: "blue",
+				followersCount: 4000,
+				followingCount: 100,
+				affiliations: [
+					null,
+					"bad",
+					{
+						organizationName: "OldCo",
+						organizationHandle: "oldco",
+						label: "OldCo",
+						url: "https://oldco.example",
+					},
+				],
+			},
+		];
+		const bioEntities = [
+			{
+				profileId: "profile_user_42",
+				kind: "handle" as const,
+				value: "@oldco",
+				source: "bio",
+				firstSeenAt: "2026-04-01T00:00:00.000Z",
+				lastSeenAt: "2026-04-01T00:00:00.000Z",
+				isActive: true,
+			},
+			{
+				profileId: "profile_user_42",
+				kind: "domain" as const,
+				value: "oldco.example",
+				source: "profile_url",
+				firstSeenAt: "2026-04-01T00:00:00.000Z",
+				lastSeenAt: "2026-04-01T00:00:00.000Z",
+				isActive: true,
+			},
+			{
+				profileId: "profile_user_42",
+				kind: "company_phrase" as const,
+				value: "OldCo",
+				source: "affiliation",
+				firstSeenAt: "2026-04-01T00:00:00.000Z",
+				lastSeenAt: "2026-04-01T00:00:00.000Z",
+				isActive: true,
+			},
+		];
+
+		expect(__test__.getSignificantQueryTerms("who is @oldco guy?")).toEqual([
+			"oldco",
+		]);
+		expect(__test__.matchesQueryText("oldco guy", "OldCo founder")).toBe(true);
+		expect(__test__.matchesQueryText("oldco", null)).toBe(false);
+		expect(__test__.getDmSearchQueries(" oldco guy ")).toEqual([
+			"oldco guy",
+			"oldco",
+		]);
+		expect(__test__.getUrlEntityExpandedUrl(null)).toBeUndefined();
+		expect(__test__.getProfileBioUrls({ ...profile, entities: {} })).toEqual(
+			[],
+		);
+		expect(
+			__test__.getProfileBioUrls({
+				...profile,
+				entities: { description: { urls: "nope" } },
+			}),
+		).toEqual([]);
+		expect(__test__.getSnapshotAffiliationTexts(snapshots[0])).toEqual([
+			"OldCo",
+			"oldco",
+			"OldCo",
+			"https://oldco.example",
+		]);
+		expect(__test__.getHistoricalSnapshotTexts(snapshots[0], profile)).toEqual(
+			expect.arrayContaining([
+				"previous handle: @oldfounder",
+				"previous name: Old Founder",
+				"previous bio: OldCo co-founder",
+				"previous location: Vienna",
+				"previous url: https://oldco.example",
+				"previous verified: blue",
+				expect.stringContaining("previous affiliations"),
+			]),
+		);
+
+		const expansion = {
+			url: "https://t.co/old",
+			expandedUrl: "https://t.co/old",
+			finalUrl: "https://oldco.example/jobs",
+			status: "hit" as const,
+			source: "cache" as const,
+			updatedAt: "2026-05-01T00:00:00.000Z",
+		};
+		const score = __test__.scoreCandidate(
+			"oldco guy",
+			conversation,
+			[expansion],
+			bioEntities,
+			snapshots,
+		);
+
+		expect(score.confidence).toBe(100);
+		expect(score.reasons).toEqual(
+			expect.arrayContaining([
+				"resolved profile",
+				"bio entity matches query",
+				"profile history matches query",
+				"cofounder language",
+				"message text matches query",
+				"expanded URL matches query",
+			]),
+		);
+		expect(score.profileEvidence).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ kind: "bio_handle", value: "@oldco" }),
+				expect.objectContaining({
+					kind: "bio_domain",
+					value: "oldco.example",
+				}),
+				expect.objectContaining({ kind: "bio_company", value: "OldCo" }),
+				expect.objectContaining({ kind: "profile_history" }),
+				expect.objectContaining({
+					kind: "expanded_url",
+					value: "https://oldco.example/jobs",
+				}),
+			]),
+		);
+
+		__test__.attachExpansionsToMatches(conversation, [expansion]);
+		const attachedMatch = conversation.matches?.[0];
+		expect(attachedMatch).toBeDefined();
+		expect(
+			(attachedMatch as { urlExpansions?: unknown[] }).urlExpansions,
+		).toHaveLength(1);
+		const merged = new Map();
+		__test__.mergeConversations(merged, [conversation, conversation]);
+		expect([...merged.keys()]).toEqual(["dm_helper"]);
+		expect(
+			__test__.scoreCandidate(
+				"nobody",
+				{ ...conversation, participant: { ...profile, handle: "id42" } },
+				[],
+			).reasons,
+		).toEqual(["local DM match"]);
+	});
+
 	it("attaches cached URL expansions and formats identity reports", async () => {
 		const { formatWhois, runWhois } = await import("./whois");
 

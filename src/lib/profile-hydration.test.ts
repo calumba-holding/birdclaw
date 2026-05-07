@@ -132,6 +132,7 @@ describe("profile hydration", () => {
 		expect(__test__.asRecord(null)).toBeNull();
 		expect(__test__.asRecord([])).toBeNull();
 		expect(__test__.asRecord({ ok: true })).toEqual({ ok: true });
+		expect(__test__.toInt(12.8)).toBe(12);
 		expect(__test__.toInt("oops")).toBe(0);
 		expect(__test__.toInt("12")).toBe(12);
 	});
@@ -185,5 +186,53 @@ describe("profile hydration", () => {
 			hydratedAccount: false,
 		});
 		expect(mocks.lookupUsersByIds).not.toHaveBeenCalled();
+	});
+
+	it("keeps default account fields when authenticated payload is sparse", async () => {
+		mocks.getTransportStatus.mockResolvedValue({
+			availableTransport: "xurl",
+			installed: true,
+			statusText: "xurl available",
+		});
+		mocks.lookupUsersByIds.mockResolvedValue([
+			{
+				id: "",
+				username: "skip",
+				name: "Skip",
+			},
+		]);
+		mocks.lookupAuthenticatedUser.mockResolvedValue({
+			public_metrics: "not metrics",
+		});
+
+		const { hydrateProfilesFromX } = await import("./profile-hydration");
+		const result = await hydrateProfilesFromX();
+		const db = getNativeDb();
+		const me = db
+			.prepare(
+				"select handle, display_name, bio, followers_count, following_count from profiles where id = 'profile_me'",
+			)
+			.get() as Record<string, unknown>;
+		const account = db
+			.prepare(
+				"select name, handle, transport from accounts where id = 'acct_primary'",
+			)
+			.get() as Record<string, unknown>;
+
+		expect(result).toMatchObject({
+			hydratedAccount: true,
+		});
+		expect(me).toEqual({
+			handle: "steipete",
+			display_name: "Peter Steinberger",
+			bio: "",
+			followers_count: 0,
+			following_count: 0,
+		});
+		expect(account).toEqual({
+			name: "Peter Steinberger",
+			handle: "@steipete",
+			transport: "xurl",
+		});
 	});
 });

@@ -445,6 +445,53 @@ describe("xurl transport wrapper", () => {
 		expect(execFileAsyncMock).toHaveBeenCalledTimes(1);
 	});
 
+	it("does not retry malformed or exhausted rate limit failures", async () => {
+		process.env.BIRDCLAW_XURL_RETRY_BASE_MS = "-1";
+		execFileAsyncMock.mockRejectedValueOnce(
+			Object.assign(new Error("wrapped"), {
+				stdout: "prefix {not json} suffix",
+			}),
+		);
+		const { lookupTweetsByIds } = await import("./xurl");
+
+		await expect(lookupTweetsByIds(["tweet_1"])).rejects.toThrow("wrapped");
+		expect(execFileAsyncMock).toHaveBeenCalledTimes(1);
+
+		process.env.BIRDCLAW_XURL_RETRY_BASE_MS = "0";
+		execFileAsyncMock.mockReset();
+		execFileAsyncMock.mockRejectedValue(
+			Object.assign(new Error("still limited"), {
+				stdout: JSON.stringify({ status: 429 }),
+			}),
+		);
+
+		await expect(lookupTweetsByIds(["tweet_1"])).rejects.toThrow(
+			"still limited",
+		);
+		expect(execFileAsyncMock).toHaveBeenCalledTimes(6);
+	});
+
+	it("reports user id resolution failures for xurl timeline reads", async () => {
+		execFileAsyncMock
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify({ data: [] }),
+				stderr: "",
+			})
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify({ data: null }),
+				stderr: "",
+			});
+		const { listBookmarkedTweetsViaXurl, listMentionsViaXurl } =
+			await import("./xurl");
+
+		await expect(
+			listMentionsViaXurl({ username: "missing", maxResults: 5 }),
+		).rejects.toThrow("Could not resolve Twitter user id for @missing");
+		await expect(
+			listBookmarkedTweetsViaXurl({ maxResults: 5 }),
+		).rejects.toThrow("Could not resolve authenticated Twitter user id");
+	});
+
 	it("returns an empty handle list when asked to resolve nothing", async () => {
 		const { lookupUsersByHandles } = await import("./xurl");
 

@@ -547,3 +547,16 @@ export async function lookupProfileViaBird(
 		},
 	};
 }
+
+export const __test__ = {
+	toIsoTimestamp,
+	escapeJsonStringControlChars,
+	parseBirdJson,
+	formatBirdCommandError,
+	isUnsupportedBirdOptionError,
+	getBirdTweetItems,
+	getBirdTweetItem,
+	toMediaEntities,
+	toReferencedTweets,
+	normalizeBirdTweets,
+};

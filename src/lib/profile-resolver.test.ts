@@ -356,4 +356,64 @@ describe("profile resolver", () => {
 			}),
 		);
 	});
+
+	it("classifies placeholder profile variants", async () => {
+		const { __test__ } = await import("./profile-resolver");
+		const baseProfile = {
+			id: "profile_user_55",
+			handle: "real",
+			displayName: "Real",
+			bio: "Real bio",
+			followersCount: 1,
+			followingCount: 0,
+			avatarHue: 10,
+			createdAt: "2026-05-01T00:00:00.000Z",
+		};
+
+		expect(__test__.isPlaceholderProfile(baseProfile)).toBe(false);
+		expect(
+			__test__.isPlaceholderProfile({
+				...baseProfile,
+				handle: "id55",
+			}),
+		).toBe(true);
+		expect(
+			__test__.isPlaceholderProfile({
+				...baseProfile,
+				handle: "user_55",
+			}),
+		).toBe(true);
+		expect(
+			__test__.isPlaceholderProfile({
+				...baseProfile,
+				displayName: "id55",
+			}),
+		).toBe(true);
+		expect(
+			__test__.isPlaceholderProfile({
+				...baseProfile,
+				displayName: "user_55",
+			}),
+		).toBe(true);
+		expect(
+			__test__.isPlaceholderProfile({
+				...baseProfile,
+				bio: "Imported from archive user 55",
+			}),
+		).toBe(true);
+		expect(
+			__test__.isPlaceholderProfile({
+				...baseProfile,
+				bio: "Imported from archive user 55 with extras",
+				followersCount: 0,
+			}),
+		).toBe(true);
+		expect(
+			__test__.isPlaceholderProfile({
+				...baseProfile,
+				id: "profile_me",
+			}),
+		).toBe(false);
+		expect(__test__.cacheKeyForUserId("55")).toBe("profile:lookup:user-id:55");
+	});
 });

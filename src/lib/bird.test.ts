@@ -551,4 +551,96 @@ describe("bird transport wrapper", () => {
 			"bird dms returned unexpected JSON",
 		);
 	});
+
+	it("normalizes bird helper edge cases", async () => {
+		const { __test__ } = await import("./bird");
+		const enoent = Object.assign(new Error("spawn ENOENT"), { code: "ENOENT" });
+
+		expect(__test__.toIsoTimestamp("not-a-date")).toBe("not-a-date");
+		expect(
+			__test__.parseBirdJson('{"text":"hello\nworld","tab":"a\tb"}'),
+		).toEqual({
+			text: "hello\nworld",
+			tab: "a\tb",
+		});
+		expect(__test__.formatBirdCommandError(enoent, "/missing/bird")).toEqual(
+			expect.objectContaining({
+				message: expect.stringContaining("bird CLI not found at /missing/bird"),
+			}),
+		);
+		expect(__test__.formatBirdCommandError("boom", "/tmp/bird")).toBe("boom");
+		expect(
+			__test__.isUnsupportedBirdOptionError(
+				Object.assign(new Error("bad"), {
+					stdout: "error: unknown option '--profile-only'",
+				}),
+				"--profile-only",
+			),
+		).toBe(true);
+		expect(__test__.isUnsupportedBirdOptionError(null, "--profile-only")).toBe(
+			false,
+		);
+		expect(__test__.getBirdTweetItems([{ id: "1" }], "mentions")).toEqual([
+			{ id: "1" },
+		]);
+		expect(() => __test__.getBirdTweetItems({}, "mentions")).toThrow(
+			"bird mentions returned unexpected JSON",
+		);
+		expect(() => __test__.getBirdTweetItem({}, "read")).toThrow(
+			"bird read returned unexpected JSON",
+		);
+		expect(__test__.toMediaEntities(undefined)).toBeUndefined();
+		expect(__test__.toMediaEntities([{ type: "photo" }])).toEqual({ urls: [] });
+		expect(
+			__test__.toReferencedTweets({
+				id: "1",
+				text: "hello",
+				createdAt: "2026-05-01T00:00:00.000Z",
+				quotedTweet: { id: "quoted" },
+			}),
+		).toEqual([{ type: "quoted", id: "quoted" }]);
+		expect(
+			__test__.normalizeBirdTweets([
+				{
+					id: "1",
+					text: "hello",
+					createdAt: "not-a-date",
+					authorId: "42",
+					author: { username: "sam" },
+					media: [{ url: "https://img.example/a.jpg" }],
+					inReplyToStatusId: "",
+				},
+				{
+					id: "2",
+					text: "second",
+					createdAt: "2026-05-01T00:00:00.000Z",
+				},
+			]),
+		).toEqual(
+			expect.objectContaining({
+				data: [
+					expect.objectContaining({
+						id: "1",
+						created_at: "not-a-date",
+						conversation_id: "1",
+						entities: expect.objectContaining({
+							urls: [
+								expect.objectContaining({ url: "https://img.example/a.jpg" }),
+							],
+						}),
+						referenced_tweets: undefined,
+					}),
+					expect.objectContaining({
+						id: "2",
+						author_id: "unknown",
+					}),
+				],
+				meta: expect.objectContaining({
+					result_count: 2,
+					newest_id: "1",
+					oldest_id: "2",
+				}),
+			}),
+		);
+	});
 });

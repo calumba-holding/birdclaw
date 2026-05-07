@@ -271,4 +271,191 @@ describe("research mode", () => {
 		expect(report.markdown).toContain("Birdclaw Research");
 		expect(readFileSync(outputPath, "utf8")).toContain("Birdclaw Research");
 	});
+
+	it("normalizes research helper edge cases", async () => {
+		const { __test__ } = await import("./research");
+		const baseRow = {
+			id: "tweet_helper",
+			account_id: "acct_research",
+			account_handle: "@researchsam",
+			kind: "home",
+			text: "Ship https://t.co/demo with @someone #tag",
+			created_at: "2026-05-01T12:00:00.000Z",
+			is_replied: 0,
+			like_count: 0,
+			bookmarked: 0,
+			liked: 0,
+			reply_to_id: null,
+			quoted_tweet_id: null,
+			entities_json: JSON.stringify({
+				mentions: [null, { username: "someone", start: 28, end: 36 }],
+				urls: [
+					null,
+					{
+						url: "https://t.co/demo",
+						expandedUrl: "https://example.com",
+						displayUrl: "example.com",
+						start: 5,
+						end: 22,
+					},
+				],
+				hashtags: [null, { tag: "tag", start: 37, end: 41 }],
+			}),
+			author_handle: "researchsam",
+			author_name: "Research Sam",
+			author_bio: "",
+			author_followers_count: 0,
+			author_avatar_hue: 10,
+			author_avatar_url: null,
+			author_created_at: "2026-05-01T00:00:00.000Z",
+		};
+
+		expect(__test__.parseJsonField("", { fallback: true })).toEqual({
+			fallback: true,
+		});
+		expect(__test__.parseJsonField("{bad json", ["fallback"])).toEqual([
+			"fallback",
+		]);
+		expect(__test__.normalizeTweetEntities(null)).toEqual({});
+		expect(
+			__test__.normalizeTweetEntities({
+				mentions: "bad",
+				urls: "bad",
+				hashtags: "bad",
+			}),
+		).toEqual({});
+		expect(
+			__test__.normalizeTweetEntities({
+				mentions: [{ username: "camel", id: 42 }],
+				urls: [
+					{
+						url: "https://t.co/snake",
+						expanded_url: "https://snake.example",
+						display_url: "snake.example",
+					},
+				],
+				hashtags: [{ tag: "snake" }],
+			}),
+		).toEqual({
+			mentions: [
+				{
+					username: "camel",
+					id: undefined,
+					start: 0,
+					end: 0,
+				},
+			],
+			urls: [
+				{
+					url: "https://t.co/snake",
+					expandedUrl: "https://snake.example",
+					displayUrl: "snake.example",
+					start: 0,
+					end: 0,
+				},
+			],
+			hashtags: [
+				{
+					tag: "snake",
+					start: 0,
+					end: 0,
+				},
+			],
+		});
+
+		const node = __test__.toResearchNode(baseRow, "local");
+		const fallbackNode = __test__.toResearchNode(
+			{
+				...baseRow,
+				id: "tweet_fallback",
+				like_count: null as unknown as number,
+				author_followers_count: null as unknown as number,
+				author_avatar_hue: null as unknown as number,
+				author_avatar_url: "https://example.com/avatar.jpg",
+				thread_depth: undefined,
+			},
+			"live",
+		);
+		const liveDuplicate = { ...node, source: "live" as const };
+		const localDuplicate = { ...node, source: "local" as const };
+		const sibling = {
+			...node,
+			id: "tweet_sibling",
+			replyToTweetId: "tweet_helper",
+			createdAt: "2026-05-01T12:01:00.000Z",
+		};
+		const orphan = {
+			...node,
+			id: "tweet_orphan",
+			replyToTweetId: "missing",
+			threadDepth: -1,
+			createdAt: "2026-05-01T11:59:00.000Z",
+		};
+
+		expect(node.markdown).toContain("https://example.com");
+		expect(fallbackNode).toEqual(
+			expect.objectContaining({
+				likeCount: 0,
+				threadDepth: 0,
+				source: "live",
+			}),
+		);
+		expect(__test__.dedupeNodes([liveDuplicate, localDuplicate])).toEqual([
+			localDuplicate,
+		]);
+		expect(
+			__test__
+				.orderThreadNodes("tweet_helper", [sibling, orphan, node])
+				.map((item) => [item.id, item.threadDepth]),
+		).toEqual([
+			["tweet_helper", 0],
+			["tweet_sibling", 1],
+			["tweet_orphan", 0],
+		]);
+		expect(__test__.collectExternalLinks([node])).toEqual([
+			"https://example.com",
+		]);
+		expect(__test__.collectHandles([node])).toEqual([
+			"@researchsam",
+			"@someone",
+		]);
+		expect(
+			__test__.renderReportMarkdown({
+				generatedAt: "2026-05-01T12:00:00.000Z",
+				seedCount: 1,
+				threadCount: 1,
+				items: [
+					{
+						seedTweetId: node.id,
+						seedUrl: node.url,
+						seedText: node.plainText,
+						threadRootId: node.id,
+						thread: [node],
+						links: [],
+						handles: [],
+					},
+				],
+			}),
+		).toContain("- Query: (all bookmarks)");
+		expect(
+			__test__.renderReportMarkdown({
+				query: "snake",
+				account: "acct_research",
+				generatedAt: "2026-05-01T12:00:00.000Z",
+				seedCount: 1,
+				threadCount: 1,
+				items: [
+					{
+						seedTweetId: node.id,
+						seedUrl: node.url,
+						seedText: node.plainText,
+						threadRootId: node.id,
+						thread: [node],
+						links: ["https://example.com"],
+						handles: ["@researchsam"],
+					},
+				],
+			}),
+		).toContain("- Query: `snake`");
+	});
 });

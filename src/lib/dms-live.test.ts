@@ -143,4 +143,95 @@ describe("cached live DMs", () => {
 		expect(second.source).toBe("cache");
 		expect(listDirectMessagesViaBirdMock).toHaveBeenCalledTimes(1);
 	});
+
+	it("validates limits and account selection", async () => {
+		makeTempHome();
+		const { syncDirectMessagesViaCachedBird } = await import("./dms-live");
+
+		await expect(syncDirectMessagesViaCachedBird({ limit: 0 })).rejects.toThrow(
+			"bird DM mode requires --limit of at least 1",
+		);
+		await expect(
+			syncDirectMessagesViaCachedBird({ account: "missing", limit: 1 }),
+		).rejects.toThrow("Unknown account: missing");
+	});
+
+	it("handles outbound latest messages and skips incomplete bird events", async () => {
+		makeTempHome();
+		listDirectMessagesViaBirdMock.mockResolvedValueOnce({
+			success: true,
+			conversations: [
+				{
+					id: "25401953-99",
+					participants: [
+						{ id: "25401953", username: "steipete", name: "Peter" },
+						{ id: "99", name: "No Handle" },
+					],
+					messages: [],
+					lastMessageAt: "bad-date",
+				},
+				{
+					id: "empty",
+					participants: [{ id: "100", username: "empty" }],
+					messages: [],
+				},
+			],
+			events: [
+				{
+					id: "missing_conversation",
+					text: "skip no conversation id",
+					senderId: "99",
+					sender: { id: "99", name: "No Handle" },
+				},
+				{
+					id: "missing_sender",
+					conversationId: "25401953-99",
+					text: "skip no sender",
+					createdAt: "2026-04-25T19:00:00.000Z",
+				},
+				{
+					id: "dm_outbound",
+					conversationId: "25401953-99",
+					text: "Outbound reply",
+					createdAt: "2026-04-25T21:00:00.000Z",
+					senderId: "25401953",
+					recipientId: "99",
+					sender: { id: "25401953", username: "steipete", name: "Peter" },
+					recipient: { id: "99", name: "No Handle" },
+				},
+			],
+		});
+		const { syncDirectMessagesViaCachedBird } = await import("./dms-live");
+
+		await expect(
+			syncDirectMessagesViaCachedBird({
+				limit: 2,
+				refresh: true,
+				cacheTtlMs: -1,
+			}),
+		).resolves.toEqual(
+			expect.objectContaining({
+				source: "bird",
+				conversations: 2,
+				messages: 3,
+			}),
+		);
+		expect(listDmConversations({ search: "Outbound", limit: 10 })).toEqual([
+			expect.objectContaining({
+				id: "25401953-99",
+				needsReply: false,
+				participant: expect.objectContaining({
+					handle: "user_99",
+					displayName: "No Handle",
+				}),
+			}),
+		]);
+		expect(getConversationThread("25401953-99")?.messages).toEqual([
+			expect.objectContaining({
+				id: "dm_outbound",
+				createdAt: "2026-04-25T21:00:00.000Z",
+				direction: "outbound",
+			}),
+		]);
+	});
 });

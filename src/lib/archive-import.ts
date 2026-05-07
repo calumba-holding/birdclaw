@@ -905,8 +905,11 @@ export async function importArchive(
 }
 
 export const __test__ = {
+	normalizeArchivePath,
 	extractArchiveJson,
 	parseArchiveArray,
+	getFirstEntry,
+	getMatchingEntries,
 	parseTwitterDate,
 	asRecord,
 	asArray,
@@ -915,6 +918,7 @@ export const __test__ = {
 	getTweetMediaCount,
 	extractTweetEntities,
 	extractTweetMedia,
+	extractCollectionTweet,
 	buildAccountPayload,
 	inferProfileFromDirectory,
 };

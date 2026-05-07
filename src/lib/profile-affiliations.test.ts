@@ -96,6 +96,44 @@ describe("profile affiliations", () => {
 		]);
 	});
 
+	it("normalizes alternate id fields and explicit organization handles", () => {
+		expect(
+			normalizeProfileAffiliationsFromUser({
+				id: "42",
+				username: "sam",
+				name: "Sam",
+				affiliation: {
+					userId: "org_1",
+					user_id: ["org_2"],
+					organizationName: "Acme",
+					organization_handle: "@acme",
+					expandedUrl: "https://twitter.com/acme",
+				},
+			}),
+		).toEqual([
+			expect.objectContaining({
+				organizationProfileId: "org_1",
+				organizationName: "Acme",
+				organizationHandle: "@acme",
+				url: "https://twitter.com/acme",
+			}),
+			expect.objectContaining({
+				organizationProfileId: "org_2",
+			}),
+		]);
+		expect(
+			normalizeProfileAffiliationsFromUser({
+				id: "42",
+				username: "sam",
+				name: "Sam",
+				affiliation: {
+					label: "X Org",
+					url: "not a url",
+				},
+			})[0]?.organizationHandle,
+		).toBeUndefined();
+	});
+
 	it("keeps badge-only highlighted labels as synthetic affiliations", () => {
 		const [affiliation] = normalizeProfileAffiliationsFromUser({
 			id: "42",
@@ -164,6 +202,22 @@ describe("profile affiliations", () => {
 				}),
 			}),
 			{ id: "profile_user_99", handle: "nobody" },
+		]);
+
+		db.prepare(
+			"update profile_affiliations set organization_name = null, organization_handle = null, badge_url = null, url = null, label = null where organization_profile_id = 'org_1'",
+		).run();
+		expect(
+			fetchProfileAffiliations(db, ["profile_aff_user_42"]).get(
+				"profile_aff_user_42",
+			),
+		).toEqual([
+			expect.objectContaining({
+				organizationProfileId: "org_1",
+				badgeUrl: null,
+				url: null,
+				label: null,
+			}),
 		]);
 	});
 });

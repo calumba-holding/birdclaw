@@ -725,3 +725,18 @@ export function formatWhois(result: WhoisResult) {
 
 	return lines.join("\n");
 }
+
+export const __test__ = {
+	getSignificantQueryTerms,
+	matchesQueryText,
+	getDmSearchQueries,
+	getUrlEntityExpandedUrl,
+	getProfileBioUrls,
+	getAffiliationTexts,
+	getSnapshotAffiliationTexts,
+	getHistoricalSnapshotTexts,
+	collectProfileEvidence,
+	scoreCandidate,
+	attachExpansionsToMatches,
+	mergeConversations,
+};

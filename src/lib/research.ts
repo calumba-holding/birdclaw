@@ -593,4 +593,15 @@ export async function runResearchMode(
 	return report;
 }
 
+export const __test__ = {
+	parseJsonField,
+	normalizeTweetEntities,
+	toResearchNode,
+	dedupeNodes,
+	orderThreadNodes,
+	collectExternalLinks,
+	collectHandles,
+	renderReportMarkdown,
+};
+
 export type { ResearchRow };

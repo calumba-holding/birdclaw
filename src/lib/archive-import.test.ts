@@ -338,12 +338,31 @@ describe("archive import", () => {
 	}, 30000);
 
 	it("covers parsing helpers and fallback normalizers", () => {
+		expect(__test__.normalizeArchivePath("data\\tweets.js")).toBe(
+			"data/tweets.js",
+		);
+		expect(
+			__test__.getFirstEntry(["root/data/account.js"], /data\/account\.js$/),
+		).toBe("root/data/account.js");
+		expect(
+			__test__.getMatchingEntries(
+				["root/data/like.js", "root/data/bookmark.js"],
+				/data\/(?:like|bookmark)\.js$/,
+			),
+		).toEqual(["root/data/like.js", "root/data/bookmark.js"]);
 		expect(__test__.extractArchiveJson("oops")).toEqual([]);
 		expect(__test__.parseArchiveArray("window.YTD.x = {}")).toEqual([]);
 		expect(__test__.parseTwitterDate("not-a-date")).toBe(
 			"1970-01-01T00:00:00.000Z",
 		);
 		expect(__test__.parseTwitterDate("")).toBe("1970-01-01T00:00:00.000Z");
+		expect(__test__.parseTwitterDate(null)).toBe("1970-01-01T00:00:00.000Z");
+		expect(__test__.parseTwitterDate("2026-05-01T12:00:00.000Z")).toBe(
+			"2026-05-01T12:00:00.000Z",
+		);
+		expect(__test__.compareIsoTimestamp("2026-01-01", "2026-01-02")).toBe(-1);
+		expect(__test__.compareIsoTimestamp("2026-01-02", "2026-01-01")).toBe(1);
+		expect(__test__.compareIsoTimestamp("2026-01-01", "2026-01-01")).toBe(0);
 		expect(__test__.asRecord(null)).toBeNull();
 		expect(__test__.asRecord([])).toBeNull();
 		expect(__test__.asArray("oops")).toEqual([]);
@@ -365,11 +384,104 @@ describe("archive import", () => {
 			displayName: "peter",
 			bio: "",
 		});
+		expect(__test__.buildAccountPayload(null, null)).toMatchObject({
+			accountId: "unknown",
+			username: "unknown",
+			displayName: "Unknown",
+			bio: "",
+		});
+		expect(
+			__test__.buildAccountPayload(
+				{
+					account: {
+						accountId: "2",
+						username: "sam",
+						name: "Sam",
+						createdAt: "not a date",
+					},
+				},
+				{ profile: { description: { bio: "Bio" } } },
+			),
+		).toMatchObject({
+			accountId: "2",
+			username: "sam",
+			displayName: "Sam",
+			createdAt: "1970-01-01T00:00:00.000Z",
+			bio: "Bio",
+		});
 		expect(
 			__test__.inferProfileFromDirectory("42", new Map([["42", {}]])),
 		).toEqual({
 			handle: "id42",
 			displayName: "id42",
+		});
+		expect(
+			__test__.inferProfileFromDirectory(
+				"42",
+				new Map([["42", { handle: "@sam", displayName: "Sam" }]]),
+			),
+		).toEqual({
+			handle: "sam",
+			displayName: "Sam",
+		});
+		expect(__test__.extractCollectionTweet({}, "like")).toBeNull();
+		expect(
+			__test__.extractCollectionTweet(
+				{ like: { fullText: "missing id" } },
+				"like",
+			),
+		).toBeNull();
+		expect(
+			__test__.extractCollectionTweet(
+				{
+					tweet: {
+						id: "42",
+						text: "collection fallback",
+						created_at: "2026-05-01T00:00:00.000Z",
+						like_count: "4",
+					},
+				},
+				"bookmark",
+			),
+		).toEqual({
+			id: "42",
+			text: "collection fallback",
+			createdAt: "2026-05-01T00:00:00.000Z",
+			likeCount: 4,
+		});
+		expect(
+			__test__.extractCollectionTweet(
+				{
+					bookmark: {
+						id_str: "43",
+						expanded_url: "https://example.com/bookmark",
+						createdAt: "2026-05-02T00:00:00.000Z",
+						favorite_count: "9",
+					},
+				},
+				"bookmark",
+			),
+		).toEqual({
+			id: "43",
+			text: "https://example.com/bookmark",
+			createdAt: "2026-05-02T00:00:00.000Z",
+			likeCount: 9,
+		});
+		expect(
+			__test__.extractCollectionTweet(
+				{
+					like: {
+						tweet_id: "44",
+						full_text: "fallback text",
+						created_at: "2026-05-03T00:00:00.000Z",
+					},
+				},
+				"like",
+			),
+		).toMatchObject({
+			id: "44",
+			text: "fallback text",
+			createdAt: "2026-05-03T00:00:00.000Z",
 		});
 		expect(
 			__test__.extractTweetEntities({
@@ -427,6 +539,45 @@ describe("archive import", () => {
 				},
 			],
 		});
+		expect(
+			__test__.extractTweetEntities({
+				entities: {
+					urls: [
+						{
+							expandedUrl: "https://example.com/camel",
+							displayUrl: "example.com/camel",
+						},
+						{
+							url: "",
+						},
+					],
+					user_mentions: [
+						{
+							screen_name: "",
+							id: 7,
+						},
+					],
+					hashtags: [
+						{
+							text: "",
+						},
+					],
+				},
+			}),
+		).toEqual({
+			urls: [
+				{
+					url: "",
+					expandedUrl: "https://example.com/camel",
+					displayUrl: "example.com/camel",
+					start: 0,
+					end: 0,
+					title: undefined,
+					description: null,
+				},
+			],
+		});
+		expect(__test__.extractTweetEntities({ entities: null })).toEqual({});
 		expect(
 			__test__.extractTweetMedia({
 				extended_entities: {
@@ -488,6 +639,46 @@ describe("archive import", () => {
 				type: "unknown",
 				altText: undefined,
 				thumbnailUrl: "https://example.com/four.bin",
+			},
+		]);
+		expect(
+			__test__.extractTweetMedia({
+				entities: {
+					media: [
+						{
+							url: "https://t.co/thumb",
+							type: "photo",
+						},
+						{
+							media_url: "",
+							url: "",
+							type: "photo",
+						},
+						{
+							media_url_https: "https://example.com/dupe.jpg",
+							url: "https://t.co/dupe",
+							type: "photo",
+						},
+						{
+							media_url_https: "https://example.com/dupe.jpg",
+							url: "https://t.co/dupe2",
+							type: "photo",
+						},
+					],
+				},
+			}),
+		).toEqual([
+			{
+				url: "https://t.co/thumb",
+				type: "image",
+				altText: undefined,
+				thumbnailUrl: "https://t.co/thumb",
+			},
+			{
+				url: "https://example.com/dupe.jpg",
+				type: "image",
+				altText: undefined,
+				thumbnailUrl: "https://example.com/dupe.jpg",
 			},
 		]);
 	});
