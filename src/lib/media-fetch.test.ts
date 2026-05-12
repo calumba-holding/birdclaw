@@ -190,6 +190,39 @@ describe("media fetch", () => {
 		).toEqual(Buffer.from([9, 8, 7]));
 	});
 
+	it("enforces max-bytes before archive reuse", async () => {
+		const root = home();
+		const archiveFile = archiveTweetFile(root, "tweet_1", "demo");
+		mkdirSync(path.dirname(archiveFile), { recursive: true });
+		writeFileSync(archiveFile, Buffer.from([9, 8, 7]));
+		insertTweet("tweet_1", [pbs("demo")]);
+		const fetchMock = vi.fn(async () => {
+			throw new Error("must not fetch");
+		});
+
+		const result = await fetchTweetMedia({
+			fetchImpl: fetchMock,
+			maxBytes: 2,
+			pacingMs: 0,
+		});
+
+		expect(result).toMatchObject({
+			fetched: 0,
+			failed: 1,
+			reused_from_archive: 0,
+			failures: [
+				expect.objectContaining({
+					media_key: "demo",
+					reason: "max-bytes",
+				}),
+			],
+		});
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(existsSync(path.join(root, "media", "originals", "demo.jpg"))).toBe(
+			false,
+		);
+	});
+
 	it("falls through to HTTP when archive bytes are missing", async () => {
 		const root = home();
 		insertTweet("tweet_1", [pbs("demo")]);
@@ -381,8 +414,16 @@ describe("media fetch", () => {
 						url: "https://video.twimg.com/hls.m3u8",
 						content_type: "application/x-mpegURL",
 					},
-					mp4("low", 256000),
-					mp4("high", 2176000),
+					{
+						url: "https://video.twimg.com/ext_tw_video/1/pu/vid/720x720/low.mp4",
+						contentType: "video/mp4",
+						bitRate: 256000,
+					},
+					{
+						url: "https://video.twimg.com/ext_tw_video/1/pu/vid/720x720/high.mp4",
+						contentType: "video/mp4",
+						bitRate: 2176000,
+					},
 				],
 			},
 		]);

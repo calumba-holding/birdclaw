@@ -166,9 +166,10 @@ function variantUrl(value: unknown) {
 	if (!item) return null;
 	const contentType = String(item.content_type ?? item.contentType ?? "");
 	if (contentType !== "video/mp4" || typeof item.url !== "string") return null;
+	const bitrate = item.bitRate ?? item.bit_rate ?? item.bitrate;
 	return {
 		url: item.url,
-		bitrate: Number.isFinite(Number(item.bitrate)) ? Number(item.bitrate) : 0,
+		bitrate: Number.isFinite(Number(bitrate)) ? Number(bitrate) : 0,
 	};
 }
 
@@ -448,10 +449,15 @@ function archivePathFor(item: Candidate, mediaOriginalsDir: string) {
 	);
 }
 
-async function reuseFromArchive(item: Candidate, mediaOriginalsDir: string) {
+async function reuseFromArchive(
+	item: Candidate,
+	mediaOriginalsDir: string,
+	maxBytes: number,
+) {
 	const archivePath = archivePathFor(item, mediaOriginalsDir);
 	if (!archivePath || !existsSync(archivePath)) return null;
 	const bytes = fileSize(archivePath);
+	if (bytes > maxBytes) return fail(item, "max-bytes");
 	await copyFile(archivePath, item.tmpPath);
 	await rename(item.tmpPath, item.path);
 	return {
@@ -687,7 +693,7 @@ export async function fetchTweetMedia(options: MediaFetchOptions = {}) {
 	if (!options.dryRun) {
 		const httpCandidates: Candidate[] = [];
 		for (const item of candidates) {
-			const reused = await reuseFromArchive(item, mediaOriginalsDir);
+			const reused = await reuseFromArchive(item, mediaOriginalsDir, maxBytes);
 			if (reused) {
 				applyFetched(result, reused);
 			} else {
