@@ -32,6 +32,48 @@ function makeTempHome() {
 	return tempDir;
 }
 
+function clearLocalMentionRows() {
+	const db = getNativeDb();
+	db.exec("delete from tweet_account_edges where kind = 'mention'");
+	db.exec("delete from tweets where kind = 'mention'");
+}
+
+function insertLocalMentionBaseline({
+	tweetId = "1000",
+	accountId = "acct_primary",
+	tweetAccountId = accountId,
+}: {
+	tweetId?: string;
+	accountId?: string;
+	tweetAccountId?: string;
+} = {}) {
+	const db = getNativeDb();
+	db.prepare(
+		`
+    insert into tweets (
+      id, account_id, author_profile_id, kind, text, created_at,
+      is_replied, reply_to_id, like_count, media_count, bookmarked, liked,
+      entities_json, media_json, quoted_tweet_id
+    ) values (
+      ?, ?, 'profile_user_42', 'mention', 'archived mention',
+      '2026-03-09T01:59:00.000Z', 0, null, 0, 0, 0, 0, '{}', '[]', null
+    )
+    `,
+	).run(tweetId, tweetAccountId);
+	db.prepare(
+		`
+    insert into tweet_account_edges (
+      account_id, tweet_id, kind, first_seen_at, last_seen_at, seen_count,
+      source, raw_json, updated_at
+    ) values (
+      ?, ?, 'mention', '2026-03-09T01:59:00.000Z',
+      '2026-03-09T01:59:00.000Z', 1, 'archive', '{}',
+      '2026-03-09T01:59:00.000Z'
+    )
+    `,
+	).run(accountId, tweetId);
+}
+
 describe("cached live mentions", () => {
 	beforeEach(() => {
 		listMentionsViaBirdMock.mockReset();
@@ -251,34 +293,8 @@ describe("cached live mentions", () => {
 
 	it("seeds first-run xurl mention sync from the newest local mention id", async () => {
 		makeTempHome();
-		const db = getNativeDb();
-		db.exec("delete from tweet_account_edges where kind = 'mention'");
-		db.exec("delete from tweets where kind = 'mention'");
-		db.prepare(
-			`
-	    insert into tweets (
-	      id, account_id, author_profile_id, kind, text, created_at,
-	      is_replied, reply_to_id, like_count, media_count, bookmarked, liked,
-	      entities_json, media_json, quoted_tweet_id
-	    ) values (
-	      '1000', 'acct_primary', 'profile_user_42', 'mention',
-	      'archived mention', '2026-03-09T01:59:00.000Z',
-	      0, null, 0, 0, 0, 0, '{}', '[]', null
-	    )
-	    `,
-		).run();
-		db.prepare(
-			`
-	    insert into tweet_account_edges (
-	      account_id, tweet_id, kind, first_seen_at, last_seen_at, seen_count,
-	      source, raw_json, updated_at
-	    ) values (
-	      'acct_primary', '1000', 'mention', '2026-03-09T01:59:00.000Z',
-	      '2026-03-09T01:59:00.000Z', 1, 'archive', '{}',
-	      '2026-03-09T01:59:00.000Z'
-	    )
-	    `,
-		).run();
+		clearLocalMentionRows();
+		insertLocalMentionBaseline();
 		listMentionsViaXurlMock.mockResolvedValueOnce({
 			data: [],
 			meta: { result_count: 0 },
@@ -303,9 +319,7 @@ describe("cached live mentions", () => {
 
 	it("warns and scans without since_id when no local mention baseline exists", async () => {
 		makeTempHome();
-		const db = getNativeDb();
-		db.exec("delete from tweet_account_edges where kind = 'mention'");
-		db.exec("delete from tweets where kind = 'mention'");
+		clearLocalMentionRows();
 		const consoleErrorMock = vi
 			.spyOn(console, "error")
 			.mockImplementation(() => {});
@@ -340,6 +354,149 @@ describe("cached live mentions", () => {
 			paginationToken: undefined,
 		});
 		expect(call).not.toHaveProperty("sinceId");
+	});
+
+	it("keeps seeded sync mentions cache separate from unseeded exports", async () => {
+		makeTempHome();
+		clearLocalMentionRows();
+		insertLocalMentionBaseline();
+		listMentionsViaXurlMock
+			.mockResolvedValueOnce({
+				data: [
+					{
+						id: "1001",
+						author_id: "7",
+						text: "incremental sync mention",
+						created_at: "2026-03-09T02:00:00.000Z",
+					},
+				],
+				meta: { result_count: 1 },
+			})
+			.mockResolvedValueOnce({
+				data: [
+					{
+						id: "full_export_mention",
+						author_id: "8",
+						text: "full export mention",
+						created_at: "2026-03-09T01:00:00.000Z",
+					},
+				],
+				meta: { result_count: 1 },
+			});
+		const { exportMentionsViaCachedXurl, syncMentions } =
+			await import("./mentions-live");
+
+		await syncMentions({
+			account: "acct_primary",
+			mode: "xurl",
+			limit: 5,
+			refresh: true,
+		});
+		const payload = await exportMentionsViaCachedXurl({
+			account: "acct_primary",
+			limit: 5,
+		});
+
+		expect(payload.data.map((tweet) => tweet.id)).toEqual([
+			"full_export_mention",
+		]);
+		expect(listMentionsViaXurlMock).toHaveBeenCalledTimes(2);
+		expect(listMentionsViaXurlMock.mock.calls[0]?.[0]).toMatchObject({
+			sinceId: "1000",
+		});
+		expect(listMentionsViaXurlMock.mock.calls[1]?.[0]).not.toHaveProperty(
+			"sinceId",
+		);
+	});
+
+	it("keeps local since_id seeding when stale cached pagination remains", async () => {
+		makeTempHome();
+		clearLocalMentionRows();
+		insertLocalMentionBaseline();
+		listMentionsViaXurlMock
+			.mockResolvedValueOnce({
+				data: [],
+				meta: { result_count: 0, next_token: "page-2" },
+			})
+			.mockResolvedValueOnce({
+				data: [],
+				meta: { result_count: 0 },
+			});
+		const { syncMentions } = await import("./mentions-live");
+
+		await syncMentions({
+			account: "acct_primary",
+			mode: "xurl",
+			limit: 5,
+			maxPages: 1,
+			refresh: true,
+		});
+		getNativeDb()
+			.prepare("update sync_cache set updated_at = ?")
+			.run("2000-01-01T00:00:00.000Z");
+		await syncMentions({
+			account: "acct_primary",
+			mode: "xurl",
+			limit: 5,
+			maxPages: 1,
+		});
+
+		expect(listMentionsViaXurlMock).toHaveBeenCalledTimes(2);
+		expect(listMentionsViaXurlMock.mock.calls[1]?.[0]).toMatchObject({
+			paginationToken: undefined,
+			sinceId: "1000",
+		});
+	});
+
+	it("seeds from mention edges even when the tweet belongs to another account", async () => {
+		makeTempHome();
+		clearLocalMentionRows();
+		const db = getNativeDb();
+		db.prepare(
+			"insert into accounts (id, name, handle, transport, is_default, created_at) values (?, ?, ?, ?, ?, ?)",
+		).run(
+			"acct_A",
+			"Account A",
+			"@accta",
+			"archive",
+			0,
+			"2026-01-01T00:00:00.000Z",
+		);
+		db.prepare(
+			"insert into accounts (id, name, handle, transport, is_default, created_at) values (?, ?, ?, ?, ?, ?)",
+		).run(
+			"acct_B",
+			"Account B",
+			"@acctb",
+			"archive",
+			0,
+			"2026-01-01T00:00:00.000Z",
+		);
+		insertLocalMentionBaseline({
+			tweetId: "2000",
+			accountId: "acct_B",
+			tweetAccountId: "acct_A",
+		});
+		listMentionsViaXurlMock.mockResolvedValueOnce({
+			data: [],
+			meta: { result_count: 0 },
+		});
+		const { syncMentions } = await import("./mentions-live");
+
+		await syncMentions({
+			account: "acct_B",
+			mode: "xurl",
+			limit: 5,
+			refresh: true,
+		});
+
+		expect(listMentionsViaXurlMock).toHaveBeenCalledWith({
+			maxResults: 5,
+			username: "acctb",
+			userId: "25401953",
+			paginationToken: undefined,
+			sinceId: "2000",
+		});
 	});
 
 	it("creates stub authors and counts media urls when includes are missing", async () => {

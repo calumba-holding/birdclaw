@@ -109,7 +109,7 @@ function findNewestLocalMentionId(db: Database, accountId: string) {
       select t.id
       from tweets t
       join tweet_account_edges e
-        on e.account_id = t.account_id and e.tweet_id = t.id
+        on e.tweet_id = t.id
       where e.account_id = ?
         and e.kind = 'mention'
       order by length(t.id) desc, t.id desc
@@ -430,13 +430,18 @@ export async function syncMentions({
 	const fetchAll = parsedMode === "xurl" && parsedMaxPages !== null;
 	const db = getNativeDb();
 	const resolvedAccount = resolveAccount(db, account);
+	const seededSinceId =
+		parsedMode === "xurl" && !explicitSinceId
+			? findNewestLocalMentionId(db, resolvedAccount.accountId)
+			: undefined;
+	const resolvedSinceId = explicitSinceId ?? seededSinceId;
 	const cacheKey = getMentionsFetchModeKey({
 		mode: parsedMode,
 		accountId: resolvedAccount.accountId,
 		pageSize: limit,
 		all: fetchAll,
 		maxPages: parsedMaxPages,
-		sinceId: explicitSinceId ?? null,
+		sinceId: resolvedSinceId ?? null,
 	});
 	const ttlMs = parseCacheTtlMs(cacheTtlMs);
 	const cached = readSyncCache<XurlMentionsResponse>(cacheKey, db);
@@ -465,21 +470,7 @@ export async function syncMentions({
 		};
 	}
 
-	const cachedPaginationToken =
-		typeof cached?.value.meta?.next_token === "string" &&
-		cached.value.meta.next_token.length > 0
-			? cached.value.meta.next_token
-			: undefined;
-	const seededSinceId =
-		parsedMode === "xurl" && !explicitSinceId && !cachedPaginationToken
-			? findNewestLocalMentionId(db, resolvedAccount.accountId)
-			: undefined;
-	if (
-		parsedMode === "xurl" &&
-		!explicitSinceId &&
-		!cachedPaginationToken &&
-		!seededSinceId
-	) {
+	if (parsedMode === "xurl" && !explicitSinceId && !seededSinceId) {
 		console.error(
 			"No local mention baseline found; syncing mentions from the newest page backwards.",
 		);
@@ -493,7 +484,7 @@ export async function syncMentions({
 					limit,
 					all: fetchAll,
 					parsedMaxPages,
-					sinceId: explicitSinceId ?? seededSinceId,
+					sinceId: resolvedSinceId,
 				});
 	mergeMentionsIntoLocalStore(
 		db,
