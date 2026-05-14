@@ -299,6 +299,9 @@ function findNewestLocalMentionId(db: Database, accountId: string) {
         on e.tweet_id = t.id
       where e.account_id = ?
         and e.kind = 'mention'
+        and length(t.id) > 0
+        and t.id glob '[0-9]*'
+        and t.id not glob '*[^0-9]*'
       order by length(t.id) desc, t.id desc
       limit 1
       `,
@@ -616,6 +619,9 @@ export async function syncMentions({
 	const parsedMode = parseSyncMode(mode);
 	const explicitSinceId = sinceId?.trim() || undefined;
 	const explicitStartTime = startTime?.trim() || undefined;
+	if (parsedMode === "bird" && (explicitSinceId || explicitStartTime)) {
+		throw new Error("bird mode does not support --since-id or --start-time");
+	}
 	if (parsedMode === "xurl") {
 		assertXurlLimit(limit);
 	} else {

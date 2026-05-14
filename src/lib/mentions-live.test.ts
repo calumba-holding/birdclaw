@@ -317,6 +317,43 @@ describe("cached live mentions", () => {
 		});
 	});
 
+	it("ignores nonnumeric local mention ids when seeding xurl since_id", async () => {
+		makeTempHome();
+		clearLocalMentionRows();
+		insertLocalMentionBaseline({ tweetId: "tweet_005" });
+		const consoleErrorMock = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		listMentionsViaXurlMock.mockResolvedValueOnce({
+			data: [],
+			meta: { result_count: 0 },
+		});
+		const { syncMentions } = await import("./mentions-live");
+
+		try {
+			await syncMentions({
+				account: "acct_primary",
+				mode: "xurl",
+				limit: 5,
+				refresh: true,
+			});
+		} finally {
+			consoleErrorMock.mockRestore();
+		}
+
+		const call = listMentionsViaXurlMock.mock.calls[0]?.[0] as Record<
+			string,
+			unknown
+		>;
+		expect(call).toMatchObject({
+			maxResults: 5,
+			username: "steipete",
+			userId: "25401953",
+			paginationToken: undefined,
+		});
+		expect(call).not.toHaveProperty("sinceId");
+	});
+
 	it("warns and scans without since_id when no local mention baseline exists", async () => {
 		makeTempHome();
 		clearLocalMentionRows();
@@ -1379,6 +1416,15 @@ describe("cached live mentions", () => {
 				limit: 5,
 			}),
 		).rejects.toThrow("--mode must be bird or xurl");
+		await expect(
+			syncMentions({
+				account: "acct_primary",
+				mode: "bird",
+				limit: 5,
+				sinceId: "1000",
+			}),
+		).rejects.toThrow("bird mode does not support --since-id or --start-time");
+		expect(listMentionsViaBirdMock).not.toHaveBeenCalled();
 	});
 
 	it("throws for unknown accounts and refresh failures without cache fallback", async () => {
