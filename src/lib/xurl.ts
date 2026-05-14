@@ -15,10 +15,14 @@ const execFileAsync = promisify(execFile);
 const TRANSPORT_STATUS_TTL_MS = 5 * 60_000;
 const AUTHENTICATED_USER_TTL_MS = 60_000;
 const JSON_RETRY_LIMIT = 6;
+const MEDIA_EXPANSION = "attachments.media_keys";
+const AUTHOR_MEDIA_EXPANSIONS = `author_id,${MEDIA_EXPANSION}`;
+const MEDIA_FIELDS =
+	"variants,preview_image_url,url,duration_ms,alt_text,type,width,height,public_metrics";
 const RICH_USER_FIELDS =
 	"description,entities,location,public_metrics,profile_image_url,url,created_at,verified,verified_type";
 const THREAD_TWEET_FIELDS =
-	"created_at,conversation_id,entities,public_metrics,referenced_tweets,in_reply_to_user_id";
+	"created_at,conversation_id,entities,public_metrics,referenced_tweets,in_reply_to_user_id,attachments";
 // X bookmarks pagination truncates above 90 until this bug is fixed:
 // https://devcommunity.x.com/t/bookmarks-api-v2-stops-paginating-after-3-pages-no-next-token-returned/257339
 const BOOKMARKS_MAX_RESULTS_CAP = 90;
@@ -418,8 +422,9 @@ export async function listMentionsViaXurl({
 
 	const query = new URLSearchParams({
 		max_results: String(maxResults),
-		expansions: "author_id",
+		expansions: AUTHOR_MEDIA_EXPANSIONS,
 		"tweet.fields": "created_at,conversation_id,entities,public_metrics",
+		"media.fields": MEDIA_FIELDS,
 		"user.fields":
 			"description,entities,location,public_metrics,profile_image_url,url,created_at,verified,verified_type",
 	});
@@ -490,9 +495,10 @@ async function listTimelineCollectionViaXurl({
 	);
 	const query = new URLSearchParams({
 		max_results: String(requestMaxResults),
-		expansions: "author_id",
+		expansions: AUTHOR_MEDIA_EXPANSIONS,
 		"tweet.fields":
 			"created_at,conversation_id,entities,public_metrics,referenced_tweets",
+		"media.fields": MEDIA_FIELDS,
 		"user.fields":
 			"description,entities,location,public_metrics,profile_image_url,url,created_at,verified,verified_type",
 	});
@@ -659,9 +665,11 @@ export async function listUserTweets(
 ): Promise<XurlUserTweetsResponse> {
 	const query = new URLSearchParams({
 		max_results: String(maxResults),
+		expansions: MEDIA_EXPANSION,
 		"tweet.fields":
 			tweetFields?.join(",") ??
 			"created_at,conversation_id,public_metrics,referenced_tweets",
+		"media.fields": MEDIA_FIELDS,
 	});
 	if (expansions && expansions.length > 0) {
 		query.set("expansions", expansions.join(","));
@@ -696,14 +704,16 @@ export async function listUserTweets(
 		payload.meta && typeof payload.meta === "object"
 			? (payload.meta as Record<string, unknown>)
 			: null;
+	const includes =
+		payload.includes && typeof payload.includes === "object"
+			? (payload.includes as XurlUserTweetsResponse["includes"])
+			: undefined;
 
 	return {
 		items: data,
 		nextToken:
 			typeof meta?.next_token === "string" ? String(meta.next_token) : null,
-		...(payload.includes && typeof payload.includes === "object"
-			? { includes: payload.includes as XurlUserTweetsResponse["includes"] }
-			: {}),
+		...(includes ? { includes } : {}),
 	};
 }
 
@@ -716,9 +726,10 @@ export async function lookupTweetsByIds(
 
 	const query = new URLSearchParams({
 		ids: ids.join(","),
-		expansions: "author_id",
+		expansions: AUTHOR_MEDIA_EXPANSIONS,
 		"tweet.fields":
 			"created_at,conversation_id,entities,public_metrics,referenced_tweets",
+		"media.fields": MEDIA_FIELDS,
 		"user.fields":
 			"description,entities,location,public_metrics,profile_image_url,url,created_at,verified,verified_type",
 	});
@@ -754,8 +765,9 @@ export async function searchRecentByConversationId(
 	const query = new URLSearchParams({
 		query: `conversation_id:${conversationId}`,
 		max_results: String(maxResults),
-		expansions: "author_id",
+		expansions: AUTHOR_MEDIA_EXPANSIONS,
 		"tweet.fields": THREAD_TWEET_FIELDS,
+		"media.fields": MEDIA_FIELDS,
 		"user.fields": RICH_USER_FIELDS,
 	});
 	if (paginationToken) {
@@ -786,8 +798,9 @@ export async function getTweetById(
 	{ timeoutMs }: { timeoutMs?: number } = {},
 ): Promise<XurlTweetsResponse> {
 	const query = new URLSearchParams({
-		expansions: "author_id",
+		expansions: AUTHOR_MEDIA_EXPANSIONS,
 		"tweet.fields": THREAD_TWEET_FIELDS,
+		"media.fields": MEDIA_FIELDS,
 		"user.fields": RICH_USER_FIELDS,
 	});
 

@@ -1,10 +1,12 @@
 import type { Database } from "./sqlite";
 import { listThreadViaBird } from "./bird";
 import { getNativeDb } from "./db";
+import { buildMediaJsonFromIncludes, countTweetMedia } from "./media-includes";
 import type {
 	XurlMentionData,
 	XurlMentionsResponse,
 	XurlMentionUser,
+	XurlMediaItem,
 	XurlTweetsResponse,
 } from "./types";
 import { upsertTweetAccountEdge } from "./tweet-account-edges";
@@ -68,17 +70,6 @@ function getRemainingThreadTimeoutMs(
 	}
 	return remainingMs;
 }
-
-function getMediaCount(tweet: XurlMentionData) {
-	const urls = Array.isArray(tweet.entities?.urls) ? tweet.entities.urls : [];
-	return urls.filter(
-		(url) =>
-			url &&
-			typeof url === "object" &&
-			typeof (url as Record<string, unknown>).media_key === "string",
-	).length;
-}
-
 function replaceTweetFts(db: Database, tweetId: string, text: string) {
 	db.prepare("delete from tweets_fts where tweet_id = ?").run(tweetId);
 	db.prepare("insert into tweets_fts (tweet_id, text) values (?, ?)").run(
@@ -123,6 +114,8 @@ function mergePayloads(pages: XurlTweetsResponse[]): XurlMentionsResponse {
 	const seenTweetIds = new Set<string>();
 	const users: XurlMentionUser[] = [];
 	const seenUserIds = new Set<string>();
+	const media: XurlMediaItem[] = [];
+	const seenMediaKeys = new Set<string>();
 
 	for (const page of pages) {
 		for (const tweet of page.data) {
@@ -140,12 +133,26 @@ function mergePayloads(pages: XurlTweetsResponse[]): XurlMentionsResponse {
 			seenUserIds.add(user.id);
 			users.push(user);
 		}
+
+		for (const item of page.includes?.media ?? []) {
+			if (seenMediaKeys.has(item.media_key)) {
+				continue;
+			}
+			seenMediaKeys.add(item.media_key);
+			media.push(item);
+		}
 	}
 
 	const lastMeta = pages.at(-1)?.meta;
 	return {
 		data: tweets,
-		includes: users.length > 0 ? { users } : undefined,
+		includes:
+			users.length > 0 || media.length > 0
+				? {
+						...(users.length > 0 ? { users } : {}),
+						...(media.length > 0 ? { media } : {}),
+					}
+				: undefined,
 		meta: {
 			...lastMeta,
 			result_count: tweets.length,
@@ -260,7 +267,7 @@ function mergeMentionThreadIntoLocalStore({
       id, account_id, author_profile_id, kind, text, created_at,
       is_replied, reply_to_id, like_count, media_count, bookmarked, liked,
       entities_json, media_json, quoted_tweet_id
-    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, '[]', null)
+    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, null)
     on conflict(id) do update set
       account_id = excluded.account_id,
       author_profile_id = excluded.author_profile_id,
@@ -315,8 +322,9 @@ function mergeMentionThreadIntoLocalStore({
 				replyToId ? 1 : 0,
 				replyToId ?? null,
 				Number(tweet.public_metrics?.like_count ?? 0),
-				getMediaCount(tweet),
+				countTweetMedia(tweet),
 				JSON.stringify(tweet.entities ?? {}),
+				buildMediaJsonFromIncludes(tweet, payload.includes?.media),
 			);
 			if (writeThreadContextEdges) {
 				upsertTweetAccountEdge(db, {

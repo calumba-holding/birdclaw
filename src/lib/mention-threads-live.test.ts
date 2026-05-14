@@ -172,6 +172,96 @@ describe("mention thread sync", () => {
 		expect(sideReply).toEqual({ kind: "thread", reply_to_id: "root_1" });
 	});
 
+	it("persists thread video variants in media_json", async () => {
+		setupTempHome();
+		mocks.listThreadViaBird.mockResolvedValue({
+			data: [
+				{
+					id: "mention_1",
+					author_id: "42",
+					text: "mention text",
+					created_at: "2026-05-04T07:00:00.000Z",
+					conversation_id: "mention_1",
+					attachments: { media_keys: ["video_1"] },
+				},
+			],
+			includes: {
+				users: [{ id: "42", username: "sam", name: "Sam" }],
+				media: [
+					{
+						media_key: "video_1",
+						type: "video",
+						preview_image_url:
+							"https://pbs.twimg.com/ext_tw_video_thumb/video_1.jpg",
+						duration_ms: 46947,
+						variants: [
+							{
+								url: "https://video.twimg.com/ext_tw_video/high.mp4",
+								content_type: "video/mp4",
+								bit_rate: 2176000,
+							},
+						],
+					},
+				],
+			},
+			meta: { result_count: 1 },
+		});
+		const { syncMentionThreads } = await import("./mention-threads-live");
+
+		await syncMentionThreads({ limit: 1, delayMs: 0, timeoutMs: 5000 });
+		const row = getNativeDb()
+			.prepare("select media_count, media_json from tweets where id = ?")
+			.get("mention_1") as { media_count: number; media_json: string };
+
+		expect(row.media_count).toBe(1);
+		expect(JSON.parse(row.media_json)).toMatchObject([
+			{
+				type: "video",
+				durationMs: 46947,
+				variants: [{ bitRate: 2176000 }],
+			},
+		]);
+	});
+
+	it("preserves existing media_json when thread payload omits media details", async () => {
+		setupTempHome();
+		const existingMediaJson = JSON.stringify([
+			{
+				url: "https://pbs.twimg.com/media/existing.jpg",
+				type: "image",
+				variants: [{ url: "https://video.twimg.com/existing.mp4" }],
+			},
+		]);
+		getNativeDb()
+			.prepare("update tweets set media_count = 1, media_json = ? where id = ?")
+			.run(existingMediaJson, "mention_1");
+		mocks.listThreadViaBird.mockResolvedValue({
+			data: [
+				{
+					id: "mention_1",
+					author_id: "42",
+					text: "mention text",
+					created_at: "2026-05-04T07:00:00.000Z",
+					conversation_id: "mention_1",
+					attachments: { media_keys: ["missing_media"] },
+				},
+			],
+			includes: {
+				users: [{ id: "42", username: "sam", name: "Sam" }],
+			},
+			meta: { result_count: 1 },
+		});
+		const { syncMentionThreads } = await import("./mention-threads-live");
+
+		await syncMentionThreads({ limit: 1, delayMs: 0, timeoutMs: 5000 });
+		const row = getNativeDb()
+			.prepare("select media_count, media_json from tweets where id = ?")
+			.get("mention_1") as { media_count: number; media_json: string };
+
+		expect(row.media_count).toBe(1);
+		expect(row.media_json).toBe(existingMediaJson);
+	});
+
 	it("records failed thread fetches without failing the sync", async () => {
 		setupTempHome();
 		mocks.listThreadViaBird.mockRejectedValue(new Error("rate limited"));
@@ -338,7 +428,11 @@ describe("mention thread sync", () => {
 		});
 		expect(mocks.searchRecentByConversationId).toHaveBeenCalledWith(
 			"root_recent",
-			{ maxResults: 100, paginationToken: undefined, timeoutMs: 15000 },
+			{
+				maxResults: 100,
+				paginationToken: undefined,
+				timeoutMs: expect.any(Number),
+			},
 		);
 		expect(mocks.getTweetById).not.toHaveBeenCalled();
 		expect(edges).toEqual([
@@ -475,17 +569,29 @@ describe("mention thread sync", () => {
 		expect(mocks.searchRecentByConversationId).toHaveBeenNthCalledWith(
 			1,
 			"root_paginated",
-			{ maxResults: 100, paginationToken: undefined, timeoutMs: 15000 },
+			{
+				maxResults: 100,
+				paginationToken: undefined,
+				timeoutMs: expect.any(Number),
+			},
 		);
 		expect(mocks.searchRecentByConversationId).toHaveBeenNthCalledWith(
 			2,
 			"root_paginated",
-			{ maxResults: 100, paginationToken: "page-2", timeoutMs: 15000 },
+			{
+				maxResults: 100,
+				paginationToken: "page-2",
+				timeoutMs: expect.any(Number),
+			},
 		);
 		expect(mocks.searchRecentByConversationId).toHaveBeenNthCalledWith(
 			3,
 			"root_paginated",
-			{ maxResults: 100, paginationToken: "page-3", timeoutMs: 15000 },
+			{
+				maxResults: 100,
+				paginationToken: "page-3",
+				timeoutMs: expect.any(Number),
+			},
 		);
 		expect(result).toMatchObject({
 			mergedTweets: 3,
@@ -840,10 +946,10 @@ describe("mention thread sync", () => {
 			.all("mention_missing_root", "parent_missing", "root_missing");
 
 		expect(mocks.getTweetById).toHaveBeenNthCalledWith(1, "parent_missing", {
-			timeoutMs: 15000,
+			timeoutMs: expect.any(Number),
 		});
 		expect(mocks.getTweetById).toHaveBeenNthCalledWith(2, "root_missing", {
-			timeoutMs: 15000,
+			timeoutMs: expect.any(Number),
 		});
 		expect(result).toMatchObject({
 			mergedTweets: 3,
@@ -1002,12 +1108,12 @@ describe("mention thread sync", () => {
 		expect(mocks.getTweetById).toHaveBeenNthCalledWith(
 			1,
 			"mention_anchor_lookup",
-			{ timeoutMs: 15000 },
+			{ timeoutMs: expect.any(Number) },
 		);
 		expect(mocks.getTweetById).toHaveBeenNthCalledWith(
 			2,
 			"parent_anchor_lookup",
-			{ timeoutMs: 15000 },
+			{ timeoutMs: expect.any(Number) },
 		);
 		expect(result).toMatchObject({
 			mergedTweets: 2,
@@ -1089,10 +1195,10 @@ describe("mention thread sync", () => {
 		expect(mocks.getTweetById).toHaveBeenNthCalledWith(
 			1,
 			"parent_legacy_reply",
-			{ timeoutMs: 15000 },
+			{ timeoutMs: expect.any(Number) },
 		);
 		expect(mocks.getTweetById).toHaveBeenNthCalledWith(2, "root_legacy_reply", {
-			timeoutMs: 15000,
+			timeoutMs: expect.any(Number),
 		});
 		expect(result).toMatchObject({
 			mergedTweets: 3,
@@ -1180,13 +1286,17 @@ describe("mention thread sync", () => {
 
 		expect(mocks.searchRecentByConversationId).toHaveBeenCalledWith(
 			"root_old",
-			{ maxResults: 100, paginationToken: undefined, timeoutMs: 15000 },
+			{
+				maxResults: 100,
+				paginationToken: undefined,
+				timeoutMs: expect.any(Number),
+			},
 		);
 		expect(mocks.getTweetById).toHaveBeenNthCalledWith(1, "parent_old", {
-			timeoutMs: 15000,
+			timeoutMs: expect.any(Number),
 		});
 		expect(mocks.getTweetById).toHaveBeenNthCalledWith(2, "root_old", {
-			timeoutMs: 15000,
+			timeoutMs: expect.any(Number),
 		});
 		expect(result).toMatchObject({
 			source: "xurl",

@@ -1,0 +1,785 @@
+/**
+ * Respectful media caching for tweet records already present in birdclaw.
+ *
+ * This is not a scraper: it never crawls, enumerates, or derives Twitter/X CDN
+ * URLs. It only downloads media URLs already stored in `tweets.media_json`,
+ * skips files present on disk, paces requests, and backs off on 429.
+ */
+import {
+	createWriteStream,
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	readdirSync,
+	statSync,
+} from "node:fs";
+import { copyFile, rename, rm } from "node:fs/promises";
+import path from "node:path";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { getBirdclawPaths } from "./config";
+import { getNativeDb } from "./db";
+
+type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
+type Row = { id: string; media_json: string };
+type MediaKind = "image" | "video" | "gif";
+type Candidate = {
+	kind: MediaKind;
+	mediaKey: string;
+	tweetId: string;
+	url: string;
+	path: string;
+	tmpPath: string;
+	archivePath?: string;
+};
+type FetchOneResult = {
+	fetched: number;
+	bytes: number;
+	rateLimited: boolean;
+	kind?: MediaKind;
+	reusedFromArchive?: boolean;
+	failure?: MediaFetchResult["failures"][number];
+};
+
+export type MediaFetchResult = {
+	ok: true;
+	fetched: number;
+	images_fetched: number;
+	videos_fetched: number;
+	gifs_fetched: number;
+	reused_from_archive: number;
+	skipped_cached: number;
+	failed: number;
+	rate_limited: number;
+	bytes: number;
+	image_bytes: number;
+	video_bytes: number;
+	gif_bytes: number;
+	duration_ms: number;
+	failures: Array<{ media_key: string; url: string; reason: string }>;
+	dry_run?: true;
+	would_fetch?: Array<{
+		media_key: string;
+		tweet_id: string;
+		kind: MediaKind;
+		url: string;
+		path: string;
+	}>;
+};
+
+export type MediaFetchOptions = {
+	account?: string;
+	limit?: number;
+	kind?: string;
+	since?: string;
+	parallel?: number;
+	pacingMs?: number;
+	videoPacingMs?: number;
+	retryMax?: number;
+	dryRun?: boolean;
+	includeVideo?: boolean;
+	maxBytes?: number;
+	fetchImpl?: FetchLike;
+	sleep?: (ms: number) => Promise<void>;
+	now?: () => number;
+	userAgent?: string;
+};
+
+const DEFAULT_MAX_BYTES = 100 * 1024 * 1024;
+const PBS_PREFIXES = [
+	"/media/",
+	"/ext_tw_video_thumb/",
+	"/amplify_video_thumb/",
+	"/tweet_video_thumb/",
+	"/profile_images/",
+] as const;
+const packageVersion = (
+	JSON.parse(
+		readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+	) as { version?: string }
+).version;
+
+function defaultSleep(ms: number) {
+	return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+function fileSize(filePath: string) {
+	try {
+		return statSync(filePath).size;
+	} catch {
+		return 0;
+	}
+}
+
+function basenameKey(url: URL) {
+	return path.posix.parse(path.posix.basename(url.pathname)).name;
+}
+
+function imageExtension(url: URL) {
+	const ext = path.posix.extname(url.pathname).toLowerCase();
+	if (ext === ".jpeg" || ext === ".jpg") return ".jpg";
+	if (ext === ".png" || ext === ".webp" || ext === ".gif" || ext === ".svg")
+		return ext;
+	const format = url.searchParams.get("format")?.toLowerCase();
+	return format === "png" || format === "webp" || format === "gif"
+		? `.${format}`
+		: ".jpg";
+}
+
+function imageCandidate(
+	urlValue: string,
+	dir: string,
+	tweetId: string,
+): Candidate | null {
+	let url: URL;
+	try {
+		url = new URL(urlValue);
+	} catch {
+		return null;
+	}
+	if (
+		url.protocol !== "https:" ||
+		url.hostname !== "pbs.twimg.com" ||
+		!PBS_PREFIXES.some((prefix) => url.pathname.startsWith(prefix))
+	) {
+		return null;
+	}
+	const mediaKey = basenameKey(url);
+	const ext = imageExtension(url);
+	return {
+		kind: "image",
+		mediaKey,
+		tweetId,
+		url: url.toString(),
+		path: path.join(dir, `${mediaKey}${ext}`),
+		tmpPath: path.join(dir, `${mediaKey}${ext}.tmp`),
+	};
+}
+
+function record(value: unknown) {
+	return value && typeof value === "object" && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
+}
+
+function variantUrl(value: unknown) {
+	const item = record(value);
+	if (!item) return null;
+	const contentType = String(item.content_type ?? item.contentType ?? "");
+	if (contentType !== "video/mp4" || typeof item.url !== "string") return null;
+	const bitrate = item.bitRate ?? item.bit_rate ?? item.bitrate;
+	return {
+		url: item.url,
+		bitrate: Number.isFinite(Number(bitrate)) ? Number(bitrate) : 0,
+	};
+}
+
+function videoCandidate(
+	item: Record<string, unknown>,
+	dir: string,
+	tweetId: string,
+): Candidate | null {
+	const rawType = String(item.type ?? "");
+	const kind: MediaKind | null =
+		rawType === "video"
+			? "video"
+			: rawType === "animated_gif" || rawType === "gif"
+				? "gif"
+				: null;
+	if (!kind) return null;
+	const variants = Array.isArray(item.variants)
+		? item.variants
+		: Array.isArray(record(item.video_info)?.variants)
+			? (record(item.video_info)?.variants as unknown[])
+			: [];
+	const best = variants
+		.map(variantUrl)
+		.filter(
+			(variant): variant is { url: string; bitrate: number } =>
+				variant !== null,
+		)
+		.sort((left, right) => right.bitrate - left.bitrate)[0];
+	if (!best) return null;
+
+	let url: URL;
+	try {
+		url = new URL(best.url);
+	} catch {
+		return null;
+	}
+	if (url.protocol !== "https:" || url.hostname !== "video.twimg.com")
+		return null;
+	const mediaKey = basenameKey(url);
+	return {
+		kind,
+		mediaKey,
+		tweetId,
+		url: url.toString(),
+		path: path.join(dir, `${mediaKey}.mp4`),
+		tmpPath: path.join(dir, `${mediaKey}.mp4.tmp`),
+	};
+}
+
+function archiveTweetDirs(dir: string, tweetId: string) {
+	const archiveRoot = path.join(dir, "archive");
+	try {
+		return readdirSync(archiveRoot, { withFileTypes: true })
+			.filter((entry) => entry.isDirectory())
+			.map((entry) => path.join(archiveRoot, entry.name, tweetId))
+			.filter((tweetDir) => existsSync(tweetDir));
+	} catch {
+		return [];
+	}
+}
+
+function archiveVideoCandidates(
+	item: Record<string, unknown>,
+	dir: string,
+	tweetId: string,
+) {
+	const rawType = String(item.type ?? "");
+	const kind: MediaKind | null =
+		rawType === "video"
+			? "video"
+			: rawType === "animated_gif" || rawType === "gif"
+				? "gif"
+				: null;
+	if (!kind) return [];
+
+	const candidates: Candidate[] = [];
+	for (const tweetDir of archiveTweetDirs(dir, tweetId)) {
+		let entries;
+		try {
+			entries = readdirSync(tweetDir, { withFileTypes: true });
+		} catch {
+			continue;
+		}
+		for (const entry of entries) {
+			const ext = path.extname(entry.name).toLowerCase();
+			if (!entry.isFile() || ext !== ".mp4") continue;
+			const archivePath = path.join(tweetDir, entry.name);
+			const prefix = `${tweetId}-`;
+			const rawKey = path.basename(entry.name, ext);
+			const mediaKey = rawKey.startsWith(prefix)
+				? rawKey.slice(prefix.length)
+				: rawKey;
+			if (!mediaKey) continue;
+			candidates.push({
+				kind,
+				mediaKey,
+				tweetId,
+				url: `archive:${archivePath}`,
+				path: path.join(dir, `${mediaKey}${ext}`),
+				tmpPath: path.join(dir, `${mediaKey}${ext}.tmp`),
+				archivePath,
+			});
+		}
+	}
+	return candidates;
+}
+
+function rowCandidates(row: Row, dir: string, includeVideo: boolean) {
+	let items: unknown;
+	try {
+		items = JSON.parse(row.media_json);
+	} catch {
+		return [];
+	}
+	if (!Array.isArray(items)) return [];
+
+	const candidates: Candidate[] = [];
+	for (const value of items) {
+		const item = record(value);
+		if (!item) continue;
+		if (typeof item.url === "string") {
+			const image = imageCandidate(item.url, dir, row.id);
+			if (image) candidates.push(image);
+		}
+		if (includeVideo) {
+			const archiveVideos = archiveVideoCandidates(item, dir, row.id);
+			if (archiveVideos.length > 0) {
+				candidates.push(...archiveVideos);
+				continue;
+			}
+			const video = videoCandidate(item, dir, row.id);
+			if (video) candidates.push(video);
+		}
+	}
+	return candidates;
+}
+
+function queryRows(options: MediaFetchOptions) {
+	const params: Array<string | number> = [];
+	const account =
+		options.account && options.account !== "all" ? options.account : undefined;
+	const kind = normalizeKind(options.kind);
+	let sql = `
+    select t.id, t.media_json
+    from tweets t
+    where t.media_json not in ('', '[]', 'null')
+  `;
+	const scopeClause = buildScopeClause(params, account, kind);
+	if (scopeClause) sql += ` and (${scopeClause})`;
+	if (options.since) {
+		params.push(options.since);
+		sql += " and t.created_at >= ?";
+	}
+	sql += " order by t.created_at desc, t.id desc";
+	if (options.limit !== undefined) {
+		params.push(Math.max(0, Math.floor(options.limit)));
+		sql += " limit ?";
+	}
+	return getNativeDb().prepare(sql).all(params) as Row[];
+}
+
+function normalizeKind(kind?: string) {
+	const value = kind?.trim().toLowerCase();
+	if (!value || value === "all") return undefined;
+	if (value === "likes") return "like";
+	if (value === "bookmarks") return "bookmark";
+	return value;
+}
+
+function collectionKind(kind?: string) {
+	if (kind === "like") return "likes";
+	if (kind === "bookmark") return "bookmarks";
+	return undefined;
+}
+
+function buildScopeClause(
+	params: Array<string | number>,
+	account?: string,
+	kind?: string,
+) {
+	const clauses: string[] = [];
+	const accountClause = (alias: string) =>
+		account ? ` and ${alias}.account_id = ?` : "";
+	const pushAccount = () => {
+		if (account) params.push(account);
+	};
+	if (kind) {
+		params.push(kind);
+		pushAccount();
+		clauses.push(
+			`exists (select 1 from tweet_account_edges edge where edge.tweet_id = t.id and edge.kind = ?${accountClause("edge")})`,
+		);
+		const savedKind = collectionKind(kind);
+		if (savedKind) {
+			params.push(savedKind);
+			pushAccount();
+			clauses.push(
+				`exists (select 1 from tweet_collections collection where collection.tweet_id = t.id and collection.kind = ?${accountClause("collection")})`,
+			);
+			const legacyColumn = savedKind === "likes" ? "liked" : "bookmarked";
+			pushAccount();
+			clauses.push(
+				`t.${legacyColumn} = 1${account ? " and t.account_id = ?" : ""}`,
+			);
+		}
+		params.push(kind);
+		pushAccount();
+		clauses.push(`t.kind = ?${account ? " and t.account_id = ?" : ""}`);
+		return clauses.join(" or ");
+	}
+	if (account) {
+		params.push(account, account, account);
+		clauses.push(
+			"exists (select 1 from tweet_account_edges edge where edge.tweet_id = t.id and edge.account_id = ?)",
+		);
+		clauses.push(
+			"exists (select 1 from tweet_collections collection where collection.tweet_id = t.id and collection.account_id = ?)",
+		);
+		clauses.push("t.account_id = ?");
+	}
+	return clauses.join(" or ");
+}
+
+function collect(options: MediaFetchOptions, dir: string) {
+	const seen = new Set<string>();
+	const candidates: Candidate[] = [];
+	const would_fetch: NonNullable<MediaFetchResult["would_fetch"]> = [];
+	let skipped_cached = 0;
+
+	for (const row of queryRows(options)) {
+		for (const item of rowCandidates(row, dir, options.includeVideo ?? true)) {
+			const identity = `${item.kind}:${item.mediaKey}`;
+			if (seen.has(identity)) continue;
+			seen.add(identity);
+			if (existsSync(item.path)) {
+				skipped_cached += 1;
+			} else if (options.dryRun) {
+				would_fetch.push({
+					media_key: item.mediaKey,
+					tweet_id: item.tweetId,
+					kind: item.kind,
+					url: item.url,
+					path: item.path,
+				});
+			} else {
+				candidates.push(item);
+			}
+		}
+	}
+	return { candidates, skipped_cached, would_fetch };
+}
+
+function fail(
+	item: Candidate,
+	reason: string,
+	rateLimited = false,
+): FetchOneResult {
+	return {
+		fetched: 0,
+		bytes: 0,
+		rateLimited,
+		failure: { media_key: item.mediaKey, url: item.url, reason },
+	};
+}
+
+/**
+ * Archive reuse consumes files extracted by the sibling
+ * `feat/import-archive-followers-following` branch into
+ * `media/originals/archive/<kind>/<tweet_id>/...`.
+ *
+ * This fetcher intentionally does not extract archive ZIP media itself; it only
+ * reuses that layout when it is already present.
+ */
+function archivePathFor(item: Candidate, mediaOriginalsDir: string) {
+	if (item.archivePath) return item.archivePath;
+	if (!item.tweetId || !item.mediaKey) return null;
+	const ext = path.extname(item.path);
+	if (!ext) return null;
+	const fileName = `${item.tweetId}-${item.mediaKey}${ext}`;
+	return (
+		archiveTweetDirs(mediaOriginalsDir, item.tweetId)
+			.map((tweetDir) => path.join(tweetDir, fileName))
+			.find((archivePath) => existsSync(archivePath)) ?? null
+	);
+}
+
+async function reuseFromArchive(
+	item: Candidate,
+	mediaOriginalsDir: string,
+	maxBytes: number,
+) {
+	const archivePath = archivePathFor(item, mediaOriginalsDir);
+	if (!archivePath || !existsSync(archivePath)) return null;
+	const bytes = fileSize(archivePath);
+	if (bytes > maxBytes) return fail(item, "max-bytes");
+	await copyFile(archivePath, item.tmpPath);
+	await rename(item.tmpPath, item.path);
+	return {
+		fetched: 1,
+		bytes,
+		rateLimited: false,
+		kind: item.kind,
+		reusedFromArchive: true,
+	} satisfies FetchOneResult;
+}
+
+function contentLength(response: Response) {
+	const value = Number(response.headers.get("content-length"));
+	return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function contentRangeTotal(response: Response) {
+	const total = /\/(\d+)\s*$/.exec(
+		response.headers.get("content-range") ?? "",
+	)?.[1];
+	return total ? Number(total) : null;
+}
+
+async function writeResponseBody(
+	response: Response,
+	tmpPath: string,
+	append: boolean,
+	maxBytes: number,
+	initialBytes: number,
+) {
+	if (!response.body) throw new Error("missing response body");
+	let bytes = 0;
+	const stream = Readable.fromWeb(
+		response.body as Parameters<typeof Readable.fromWeb>[0],
+	);
+	const limiter = new Transform({
+		transform(chunk: Buffer, _encoding, callback) {
+			bytes += chunk.byteLength;
+			if (initialBytes + bytes > maxBytes) {
+				callback(new Error("max-bytes"));
+				return;
+			}
+			callback(null, chunk);
+		},
+	});
+	try {
+		await pipeline(
+			stream,
+			limiter,
+			createWriteStream(tmpPath, { flags: append ? "a" : "w" }),
+		);
+	} catch (error) {
+		if (error instanceof Error && error.message === "max-bytes") {
+			await rm(tmpPath, { force: true });
+		}
+		throw error;
+	}
+	return bytes;
+}
+
+async function fetchOne({
+	item,
+	fetchImpl,
+	sleep,
+	retryMax,
+	userAgent,
+	maxBytes,
+}: {
+	item: Candidate;
+	fetchImpl: FetchLike;
+	sleep: (ms: number) => Promise<void>;
+	retryMax: number;
+	userAgent: string;
+	maxBytes: number;
+}): Promise<FetchOneResult> {
+	let rateLimited = false;
+	for (let attempt = 0; attempt <= retryMax; attempt += 1) {
+		const partialBytes = item.kind === "image" ? 0 : fileSize(item.tmpPath);
+		if (partialBytes > maxBytes) {
+			await rm(item.tmpPath, { force: true });
+			return fail(item, "max-bytes");
+		}
+		let response: Response;
+		try {
+			response = await fetchImpl(item.url, {
+				headers: {
+					"user-agent": userAgent,
+					...(partialBytes > 0 ? { range: `bytes=${partialBytes}-` } : {}),
+				},
+			});
+		} catch (error) {
+			return fail(
+				item,
+				error instanceof Error ? error.message : String(error),
+				rateLimited,
+			);
+		}
+		if (response.status === 429) {
+			rateLimited = true;
+			if (attempt < retryMax) {
+				await sleep(1000 * 2 ** attempt);
+				continue;
+			}
+			return fail(item, "429", true);
+		}
+		if (!response.ok && response.status !== 206) {
+			return fail(item, String(response.status), rateLimited);
+		}
+
+		const expectedTotal =
+			contentRangeTotal(response) ??
+			(contentLength(response) ?? 0) +
+				(response.status === 206 ? partialBytes : 0);
+		if (expectedTotal > maxBytes) {
+			await rm(item.tmpPath, { force: true });
+			return fail(item, "max-bytes");
+		}
+
+		const append = partialBytes > 0 && response.status === 206;
+		let bytes = 0;
+		try {
+			bytes = await writeResponseBody(
+				response,
+				item.tmpPath,
+				append,
+				maxBytes,
+				append ? partialBytes : 0,
+			);
+		} catch (error) {
+			if (error instanceof Error && error.message === "max-bytes") {
+				return fail(item, "max-bytes", rateLimited);
+			}
+			return fail(
+				item,
+				error instanceof Error ? error.message : String(error),
+				rateLimited,
+			);
+		}
+		await rename(item.tmpPath, item.path);
+		return { fetched: 1, bytes, rateLimited, kind: item.kind };
+	}
+	return fail(item, "retry exhausted", rateLimited);
+}
+
+function applyFetched(result: MediaFetchResult, fetched: FetchOneResult) {
+	result.fetched += fetched.fetched;
+	result.bytes += fetched.bytes;
+	if (fetched.kind === "image") {
+		result.images_fetched += 1;
+		result.image_bytes += fetched.bytes;
+	}
+	if (fetched.kind === "video") {
+		result.videos_fetched += 1;
+		result.video_bytes += fetched.bytes;
+	}
+	if (fetched.kind === "gif") {
+		result.gifs_fetched += 1;
+		result.gif_bytes += fetched.bytes;
+	}
+	if (fetched.reusedFromArchive) result.reused_from_archive += 1;
+	if (fetched.rateLimited) result.rate_limited += 1;
+	if (fetched.failure) result.failures.push(fetched.failure);
+}
+
+async function runGroup(
+	items: Candidate[],
+	parallel: number,
+	pacingMs: number,
+	now: () => number,
+	sleep: (ms: number) => Promise<void>,
+	worker: (item: Candidate) => Promise<void>,
+) {
+	let next = 0;
+	let lastStart: number | null = null;
+	let pace = Promise.resolve();
+	const runPaced = async (item: Candidate) => {
+		const previous = pace;
+		let release = () => {};
+		pace = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await previous;
+		let work: Promise<void>;
+		try {
+			const waitMs =
+				lastStart !== null ? Math.max(0, lastStart + pacingMs - now()) : 0;
+			if (waitMs > 0) await sleep(waitMs);
+			lastStart = now();
+			work = worker(item);
+		} finally {
+			release();
+		}
+		await work;
+	};
+	await Promise.all(
+		Array.from({ length: Math.min(parallel, items.length) }, async () => {
+			for (;;) {
+				const item = items[next++];
+				if (!item) return;
+				await runPaced(item);
+			}
+		}),
+	);
+}
+
+export async function fetchTweetMedia(options: MediaFetchOptions = {}) {
+	const now = options.now ?? Date.now;
+	const startedAt = now();
+	const sleep = options.sleep ?? defaultSleep;
+	const fetchImpl = options.fetchImpl ?? fetch;
+	const retryMax = Math.max(0, Math.floor(options.retryMax ?? 3));
+	const parallel = Math.min(5, Math.max(1, Math.floor(options.parallel ?? 1)));
+	const pacingMs = Math.max(0, Math.floor(options.pacingMs ?? 250));
+	const videoPacingMs = Math.max(
+		0,
+		Math.floor(options.videoPacingMs ?? pacingMs),
+	);
+	const maxBytes = Math.max(
+		0,
+		Math.floor(options.maxBytes ?? DEFAULT_MAX_BYTES),
+	);
+	const userAgent =
+		options.userAgent ??
+		`birdclaw/${packageVersion ?? "0.0.0"} (https://github.com/steipete/birdclaw)`;
+	const { mediaOriginalsDir } = getBirdclawPaths();
+	mkdirSync(mediaOriginalsDir, { recursive: true });
+
+	const { candidates, skipped_cached, would_fetch } = collect(
+		options,
+		mediaOriginalsDir,
+	);
+	const result: MediaFetchResult = {
+		ok: true,
+		fetched: 0,
+		images_fetched: 0,
+		videos_fetched: 0,
+		gifs_fetched: 0,
+		reused_from_archive: 0,
+		skipped_cached,
+		failed: 0,
+		rate_limited: 0,
+		bytes: 0,
+		image_bytes: 0,
+		video_bytes: 0,
+		gif_bytes: 0,
+		duration_ms: 0,
+		failures: [],
+		...(options.dryRun ? { dry_run: true as const, would_fetch } : {}),
+	};
+
+	if (!options.dryRun) {
+		const httpCandidates: Candidate[] = [];
+		for (const item of candidates) {
+			const reused = await reuseFromArchive(item, mediaOriginalsDir, maxBytes);
+			if (reused) {
+				applyFetched(result, reused);
+			} else {
+				httpCandidates.push(item);
+			}
+		}
+		const fetchCandidate = async (item: Candidate) =>
+			applyFetched(
+				result,
+				await fetchOne({
+					item,
+					fetchImpl,
+					sleep,
+					retryMax,
+					userAgent,
+					maxBytes,
+				}),
+			);
+		await runGroup(
+			httpCandidates.filter((item) => item.kind === "image"),
+			parallel,
+			pacingMs,
+			now,
+			sleep,
+			fetchCandidate,
+		);
+		await runGroup(
+			httpCandidates.filter((item) => item.kind !== "image"),
+			1,
+			videoPacingMs,
+			now,
+			sleep,
+			fetchCandidate,
+		);
+	}
+
+	result.failed = result.failures.length;
+	result.duration_ms = Math.max(0, Math.round(now() - startedAt));
+	return result;
+}
+
+export function formatMediaFetchResult(result: MediaFetchResult) {
+	if (result.dry_run) {
+		return [
+			...(result.would_fetch ?? []).map(
+				(item) => `${item.kind}\t${item.media_key}\t${item.url}\t${item.path}`,
+			),
+			`would_fetch=${result.would_fetch?.length ?? 0} skipped_cached=${result.skipped_cached}`,
+		].join("\n");
+	}
+	return [
+		`fetched=${result.fetched}`,
+		`images=${result.images_fetched}`,
+		`videos=${result.videos_fetched}`,
+		`gifs=${result.gifs_fetched}`,
+		`reused_from_archive=${result.reused_from_archive}`,
+		`skipped_cached=${result.skipped_cached}`,
+		`failed=${result.failed}`,
+		`rate_limited=${result.rate_limited}`,
+		`bytes=${result.bytes}`,
+		`duration_ms=${result.duration_ms}`,
+	].join(" ");
+}

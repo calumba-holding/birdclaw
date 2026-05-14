@@ -1,8 +1,9 @@
 import type { Database } from "./sqlite";
 import { listHomeTimelineViaBird } from "./bird";
 import { getNativeDb } from "./db";
+import { buildMediaJsonFromIncludes, countTweetMedia } from "./media-includes";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
-import type { XurlMentionData, XurlMentionsResponse } from "./types";
+import type { XurlMentionsResponse } from "./types";
 import { upsertTweetAccountEdge } from "./tweet-account-edges";
 import { ensureStubProfileForXUser, upsertProfileFromXUser } from "./x-profile";
 
@@ -44,16 +45,6 @@ function resolveAccount(db: Database, accountId?: string) {
 	return row.id;
 }
 
-function getMediaCount(tweet: XurlMentionData) {
-	const urls = Array.isArray(tweet.entities?.urls) ? tweet.entities.urls : [];
-	return urls.filter(
-		(url) =>
-			url &&
-			typeof url === "object" &&
-			typeof (url as Record<string, unknown>).media_key === "string",
-	).length;
-}
-
 function replaceTweetFts(db: Database, tweetId: string, text: string) {
 	db.prepare("delete from tweets_fts where tweet_id = ?").run(tweetId);
 	db.prepare("insert into tweets_fts (tweet_id, text) values (?, ?)").run(
@@ -76,7 +67,7 @@ function mergeHomeTimelineIntoLocalStore(
       id, account_id, author_profile_id, kind, text, created_at,
       is_replied, reply_to_id, like_count, media_count, bookmarked, liked,
       entities_json, media_json, quoted_tweet_id
-    ) values (?, ?, ?, 'home', ?, ?, 0, null, ?, ?, 0, 0, ?, '[]', null)
+    ) values (?, ?, ?, 'home', ?, ?, 0, null, ?, ?, 0, 0, ?, ?, null)
     on conflict(id) do update set
       account_id = tweets.account_id,
       author_profile_id = excluded.author_profile_id,
@@ -84,9 +75,12 @@ function mergeHomeTimelineIntoLocalStore(
       text = excluded.text,
       created_at = excluded.created_at,
       like_count = excluded.like_count,
-      media_count = excluded.media_count,
+      media_count = max(tweets.media_count, excluded.media_count),
       entities_json = excluded.entities_json,
-      media_json = excluded.media_json,
+      media_json = case
+        when excluded.media_json not in ('', '[]', 'null') then excluded.media_json
+        else tweets.media_json
+      end,
       bookmarked = tweets.bookmarked,
       liked = tweets.liked
     `,
@@ -112,8 +106,9 @@ function mergeHomeTimelineIntoLocalStore(
 				tweet.text,
 				tweet.created_at,
 				Number(tweet.public_metrics?.like_count ?? 0),
-				getMediaCount(tweet),
+				countTweetMedia(tweet),
 				JSON.stringify(tweet.entities ?? {}),
+				buildMediaJsonFromIncludes(tweet, payload.includes?.media),
 			);
 			upsertTweetAccountEdge(db, {
 				accountId,

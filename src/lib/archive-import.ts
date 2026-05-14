@@ -1,6 +1,17 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import {
+	createWriteStream,
+	existsSync,
+	mkdirSync,
+	renameSync,
+	statSync,
+	unlinkSync,
+} from "node:fs";
+import path from "node:path";
+import { pipeline } from "node:stream/promises";
 import { promisify } from "node:util";
+import { getBirdclawPaths } from "./config";
 import { getNativeDb } from "./db";
 
 const execFileAsync = promisify(execFile);
@@ -29,6 +40,7 @@ interface ImportedArchiveSummary {
 		dmConversations: number;
 		dmMessages: number;
 		profiles: number;
+		mediaFiles: ArchiveMediaFileCounts;
 		followers: number;
 		following: number;
 	};
@@ -51,6 +63,28 @@ export interface ImportArchiveOptions {
 }
 
 type ArchiveRecord = Record<string, unknown>;
+type ArchiveMediaKind =
+	| "tweets"
+	| "dms"
+	| "community"
+	| "profile"
+	| "deleted"
+	| "moments"
+	| "dmGroup";
+type ArchiveMediaFileCounts = Record<ArchiveMediaKind, number>;
+
+const ARCHIVE_MEDIA_DIRECTORIES: Array<{
+	directory: string;
+	kind: ArchiveMediaKind;
+}> = [
+	{ directory: "tweets_media", kind: "tweets" },
+	{ directory: "direct_messages_media", kind: "dms" },
+	{ directory: "community_tweet_media", kind: "community" },
+	{ directory: "deleted_tweets_media", kind: "deleted" },
+	{ directory: "profile_media", kind: "profile" },
+	{ directory: "moments_tweets_media", kind: "moments" },
+	{ directory: "direct_messages_group_media", kind: "dmGroup" },
+];
 type ArchiveFollowDirection = "followers" | "following";
 type ArchiveFollowKey = "follower" | "following";
 
@@ -95,6 +129,23 @@ async function listArchiveEntries(archivePath: string) {
 		.split("\n")
 		.map((item) => item.trim())
 		.filter((item) => item.length > 0);
+}
+
+async function listArchiveEntryDetails(archivePath: string) {
+	const stdout = await runUnzip(
+		archivePath,
+		["-Z", "-l", archivePath],
+		1024 * 1024 * 64,
+	);
+	return stdout
+		.split("\n")
+		.map((line) => line.trim().split(/\s+/))
+		.filter((parts) => parts.length >= 10 && /^[-d]/.test(parts[0] ?? ""))
+		.map((parts) => ({
+			path: parts.slice(9).join(" "),
+			size: Number(parts[3] ?? 0),
+		}))
+		.filter((entry) => entry.path.length > 0 && Number.isFinite(entry.size));
 }
 
 async function readArchiveEntry(archivePath: string, entryPath: string) {
@@ -160,6 +211,11 @@ function getTweetMediaCount(tweet: Record<string, unknown>) {
 	return Math.max(entitiesMedia.length, extendedMedia.length);
 }
 
+function toFiniteNumber(value: unknown) {
+	const number = Number(value);
+	return Number.isFinite(number) ? number : undefined;
+}
+
 function extractTweetEntities(tweet: Record<string, unknown>) {
 	const entities = asRecord(tweet.entities);
 	const urls = asArray<Record<string, unknown>>(entities?.urls)
@@ -219,6 +275,61 @@ function extractTweetEntities(tweet: Record<string, unknown>) {
 	};
 }
 
+function archiveMediaType(value: unknown) {
+	const type = String(value ?? "image");
+	return type === "photo"
+		? "image"
+		: type === "video" || type === "animated_gif"
+			? type === "animated_gif"
+				? "gif"
+				: "video"
+			: "unknown";
+}
+
+function archiveMediaSize(entry: Record<string, unknown>) {
+	const sizes = asRecord(entry.sizes);
+	const large = asRecord(sizes?.large);
+	const largeWidth = toFiniteNumber(large?.w ?? large?.width);
+	const largeHeight = toFiniteNumber(large?.h ?? large?.height);
+	if (largeWidth !== undefined && largeHeight !== undefined) {
+		return { width: largeWidth, height: largeHeight };
+	}
+
+	return Object.values(sizes ?? {})
+		.map((size) => asRecord(size))
+		.map((size) => ({
+			width: toFiniteNumber(size?.w ?? size?.width),
+			height: toFiniteNumber(size?.h ?? size?.height),
+		}))
+		.filter(
+			(size): size is { width: number; height: number } =>
+				size.width !== undefined && size.height !== undefined,
+		)
+		.sort(
+			(left, right) => right.width * right.height - left.width * left.height,
+		)[0];
+}
+
+function archiveMp4Variants(entry: Record<string, unknown>) {
+	const videoInfo = asRecord(entry.video_info);
+	return asArray<Record<string, unknown>>(videoInfo?.variants)
+		.filter(
+			(variant) =>
+				variant.content_type === "video/mp4" && typeof variant.url === "string",
+		)
+		.map((variant) => {
+			const bitRate = toFiniteNumber(variant.bitrate ?? variant.bit_rate);
+			return {
+				url: String(variant.url),
+				contentType: String(variant.content_type),
+				...(bitRate !== undefined ? { bitRate } : {}),
+			};
+		})
+		.sort(
+			(left, right) => Number(right.bitRate ?? 0) - Number(left.bitRate ?? 0),
+		);
+}
+
 function extractTweetMedia(tweet: Record<string, unknown>) {
 	const extendedEntities = asRecord(tweet.extended_entities);
 	const entities = asRecord(tweet.entities);
@@ -236,22 +347,20 @@ function extractTweetMedia(tweet: Record<string, unknown>) {
 			const thumbnailUrl = String(
 				entry.media_url_https ?? entry.media_url ?? url,
 			);
-			const type = String(entry.type ?? "image");
+			const videoInfo = asRecord(entry.video_info);
+			const durationMs = toFiniteNumber(videoInfo?.duration_millis);
+			const variants = archiveMp4Variants(entry);
 			return {
 				url,
-				type:
-					type === "photo"
-						? "image"
-						: type === "video" || type === "animated_gif"
-							? type === "animated_gif"
-								? "gif"
-								: "video"
-							: "unknown",
+				type: archiveMediaType(entry.type),
 				altText:
 					typeof entry.ext_alt_text === "string"
 						? entry.ext_alt_text
 						: undefined,
 				thumbnailUrl,
+				...archiveMediaSize(entry),
+				...(durationMs !== undefined ? { durationMs } : {}),
+				...(variants.length > 0 ? { variants } : {}),
 			};
 		})
 		.filter((entry) => {
@@ -326,6 +435,131 @@ function inferProfileFromDirectory(
 	const handle = match?.handle?.replace(/^@/, "") || `id${userId}`;
 	const displayName = match?.displayName || handle;
 	return { handle, displayName };
+}
+
+function createArchiveMediaFileCounts(): ArchiveMediaFileCounts {
+	return {
+		tweets: 0,
+		dms: 0,
+		community: 0,
+		profile: 0,
+		deleted: 0,
+		moments: 0,
+		dmGroup: 0,
+	};
+}
+
+function selectedArchiveMediaKinds(selection: Set<ArchiveImportSlice> | null) {
+	if (!selection) return null;
+	const kinds = new Set<ArchiveMediaKind>();
+	if (selection.has("tweets")) {
+		for (const kind of ["tweets", "community", "deleted", "moments"] as const) {
+			kinds.add(kind);
+		}
+	}
+	if (selection.has("directMessages")) {
+		for (const kind of ["dms", "dmGroup"] as const) {
+			kinds.add(kind);
+		}
+	}
+	if (selection.has("profiles")) {
+		kinds.add("profile");
+	}
+	return kinds;
+}
+
+function getArchiveMediaKind(entryPath: string) {
+	const normalized = normalizeArchivePath(entryPath);
+	if (normalized.endsWith("/")) return undefined;
+	return ARCHIVE_MEDIA_DIRECTORIES.find(({ directory }) =>
+		new RegExp(`(?:^|/)data/${directory}/[^/]+$`).test(normalized),
+	);
+}
+
+function getArchiveMediaOwnerId(entryPath: string) {
+	const fileName = path.posix.basename(normalizeArchivePath(entryPath));
+	const separator = fileName.indexOf("-");
+	return separator > 0 ? fileName.slice(0, separator) : "unknown";
+}
+
+function getArchiveMediaDestination(entryPath: string, kind: ArchiveMediaKind) {
+	const { mediaOriginalsDir } = getBirdclawPaths();
+	const normalized = normalizeArchivePath(entryPath);
+	const fileName = path.posix.basename(normalized);
+	return path.join(
+		mediaOriginalsDir,
+		"archive",
+		kind,
+		getArchiveMediaOwnerId(normalized),
+		fileName,
+	);
+}
+
+function needsArchiveMediaCopy(destinationPath: string, size: number) {
+	if (!existsSync(destinationPath)) return true;
+	return statSync(destinationPath).size !== size;
+}
+
+async function copyArchiveEntryToFile(
+	archivePath: string,
+	entryPath: string,
+	destinationPath: string,
+) {
+	mkdirSync(path.dirname(destinationPath), { recursive: true });
+	const temporaryPath = `${destinationPath}.${process.pid}.${randomUUID()}.tmp`;
+	const child = spawn("unzip", ["-p", archivePath, entryPath], {
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+	let stderr = "";
+	child.stderr.setEncoding("utf8");
+	child.stderr.on("data", (chunk) => {
+		stderr += String(chunk);
+	});
+	const exit = new Promise<number | null>((resolve, reject) => {
+		child.on("error", reject);
+		child.on("close", resolve);
+	});
+
+	try {
+		await pipeline(child.stdout, createWriteStream(temporaryPath));
+		const exitCode = await exit;
+		if (exitCode !== 0) {
+			throw new Error(
+				`Failed to extract ${entryPath}: ${stderr.trim() || `exit ${String(exitCode)}`}`,
+			);
+		}
+		renameSync(temporaryPath, destinationPath);
+	} catch (error) {
+		child.kill();
+		if (existsSync(temporaryPath)) {
+			unlinkSync(temporaryPath);
+		}
+		throw error;
+	}
+}
+
+async function extractArchiveMediaFiles(
+	archivePath: string,
+	selectedKinds: Set<ArchiveMediaKind> | null,
+) {
+	const counts = createArchiveMediaFileCounts();
+	if (selectedKinds?.size === 0) {
+		return counts;
+	}
+	for (const entry of await listArchiveEntryDetails(archivePath)) {
+		const mediaKind = getArchiveMediaKind(entry.path);
+		if (!mediaKind) continue;
+		if (selectedKinds && !selectedKinds.has(mediaKind.kind)) continue;
+
+		counts[mediaKind.kind] += 1;
+		const destinationPath = getArchiveMediaDestination(
+			entry.path,
+			mediaKind.kind,
+		);
+		if (!needsArchiveMediaCopy(destinationPath, entry.size)) continue;
+		await copyArchiveEntryToFile(archivePath, entry.path, destinationPath);
+	}
+	return counts;
 }
 
 function getArchiveFollowRows(content: string, key: ArchiveFollowKey) {
@@ -1233,6 +1467,11 @@ export async function importArchive(
 		}
 		bookmarkCount += bookmarks.length;
 	}
+
+	const mediaFileCounts = await extractArchiveMediaFiles(
+		archivePath,
+		selectedArchiveMediaKinds(selection),
+	);
 
 	for (const entry of followerEntries) {
 		const content = await readArchiveEntry(archivePath, entry);
@@ -2181,6 +2420,7 @@ export async function importArchive(
 			dmConversations: conversations.size,
 			dmMessages: dmMessages.length,
 			profiles: profiles.size,
+			mediaFiles: mediaFileCounts,
 			followers: followerRows.length,
 			following: followingRows.length,
 		},

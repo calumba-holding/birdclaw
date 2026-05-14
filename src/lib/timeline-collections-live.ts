@@ -1,10 +1,12 @@
 import type { Database } from "./sqlite";
 import { listBookmarkedTweetsViaBird, listLikedTweetsViaBird } from "./bird";
 import { getNativeDb } from "./db";
+import { buildMediaJsonFromIncludes, countTweetMedia } from "./media-includes";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
 import type {
 	XurlMentionData,
 	XurlMentionsResponse,
+	XurlMediaItem,
 	XurlMentionUser,
 } from "./types";
 import { ensureStubProfileForXUser, upsertProfileFromXUser } from "./x-profile";
@@ -88,16 +90,6 @@ function resolveAccount(db: Database, accountId?: string) {
 	};
 }
 
-function getMediaCount(tweet: XurlMentionData) {
-	const urls = Array.isArray(tweet.entities?.urls) ? tweet.entities.urls : [];
-	return urls.filter(
-		(url) =>
-			url &&
-			typeof url === "object" &&
-			typeof (url as Record<string, unknown>).media_key === "string",
-	).length;
-}
-
 function replaceTweetFts(db: Database, tweetId: string, text: string) {
 	db.prepare("delete from tweets_fts where tweet_id = ?").run(tweetId);
 	db.prepare("insert into tweets_fts (tweet_id, text) values (?, ?)").run(
@@ -117,6 +109,8 @@ function mergePayloads(pages: XurlMentionsResponse[]): XurlMentionsResponse {
 	const seenTweetIds = new Set<string>();
 	const users: XurlMentionUser[] = [];
 	const seenUserIds = new Set<string>();
+	const media: XurlMediaItem[] = [];
+	const seenMediaKeys = new Set<string>();
 
 	for (const page of pages) {
 		for (const tweet of page.data) {
@@ -134,12 +128,24 @@ function mergePayloads(pages: XurlMentionsResponse[]): XurlMentionsResponse {
 			seenUserIds.add(user.id);
 			users.push(user);
 		}
+
+		for (const item of page.includes?.media ?? []) {
+			if (seenMediaKeys.has(item.media_key)) {
+				continue;
+			}
+			seenMediaKeys.add(item.media_key);
+			media.push(item);
+		}
 	}
 
 	const lastPage = pages.at(-1);
+	const includes = {
+		...(users.length > 0 ? { users } : {}),
+		...(media.length > 0 ? { media } : {}),
+	};
 	return {
 		data: tweets,
-		includes: users.length > 0 ? { users } : undefined,
+		includes: users.length > 0 || media.length > 0 ? includes : undefined,
 		meta: {
 			result_count: tweets.length,
 			page_count: pages.length,
@@ -215,7 +221,7 @@ function mergeTimelineCollectionIntoLocalStore(
       id, account_id, author_profile_id, kind, text, created_at,
       is_replied, reply_to_id, like_count, media_count, bookmarked, liked,
       entities_json, media_json, quoted_tweet_id
-    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?)
+    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     on conflict(id) do update set
       account_id = tweets.account_id,
       author_profile_id = excluded.author_profile_id,
@@ -226,9 +232,12 @@ function mergeTimelineCollectionIntoLocalStore(
       text = excluded.text,
       created_at = excluded.created_at,
       like_count = excluded.like_count,
-      media_count = excluded.media_count,
+      media_count = max(tweets.media_count, excluded.media_count),
       entities_json = excluded.entities_json,
-      media_json = excluded.media_json,
+      media_json = case
+        when excluded.media_json not in ('', '[]', 'null') then excluded.media_json
+        else tweets.media_json
+      end,
       is_replied = max(tweets.is_replied, excluded.is_replied),
       reply_to_id = coalesce(excluded.reply_to_id, tweets.reply_to_id),
       quoted_tweet_id = coalesce(excluded.quoted_tweet_id, tweets.quoted_tweet_id),
@@ -271,10 +280,11 @@ function mergeTimelineCollectionIntoLocalStore(
 				replyToId ? 1 : 0,
 				replyToId,
 				Number(tweet.public_metrics?.like_count ?? 0),
-				getMediaCount(tweet),
+				countTweetMedia(tweet),
 				bookmarked,
 				liked,
 				JSON.stringify(tweet.entities ?? {}),
+				buildMediaJsonFromIncludes(tweet, payload.includes?.media),
 				quotedTweetId,
 			);
 			upsertCollection.run(

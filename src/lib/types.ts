@@ -111,6 +111,12 @@ export interface TweetMediaItem {
 	width?: number;
 	height?: number;
 	thumbnailUrl?: string;
+	durationMs?: number;
+	variants?: Array<{
+		url: string;
+		contentType?: string;
+		bitRate?: number;
+	}>;
 }
 
 export interface EmbeddedTweet {
@@ -524,15 +530,24 @@ export interface XurlTweetAttachments {
 	poll_ids?: string[];
 }
 
-export interface XurlMedia {
+export interface XurlMediaItem {
 	media_key: string;
-	type: string;
+	type: "photo" | "video" | "animated_gif" | string;
 	url?: string;
 	preview_image_url?: string;
+	duration_ms?: number;
 	width?: number;
 	height?: number;
 	alt_text?: string;
+	public_metrics?: XurlPublicMetrics;
+	variants?: Array<{
+		url: string;
+		content_type: string;
+		bit_rate?: number;
+	}>;
 }
+
+export type XurlMedia = XurlMediaItem;
 
 export interface XurlTweetIncludes {
 	users?: XurlMentionUser[];
@@ -575,6 +590,7 @@ export interface XurlMentionsResponse {
 	data: XurlMentionData[];
 	includes?: {
 		users?: XurlMentionUser[];
+		media?: XurlMediaItem[];
 	};
 	meta?: Record<string, unknown>;
 }
@@ -583,6 +599,7 @@ export interface XurlTweetsResponse {
 	data: XurlTweetData[];
 	includes?: {
 		users?: XurlMentionUser[];
+		media?: XurlMediaItem[];
 	};
 	meta?: Record<string, unknown>;
 }

@@ -1,11 +1,19 @@
 // @vitest-environment node
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { __test__, importArchive } from "./archive-import";
-import { resetBirdclawPathsForTests } from "./config";
+import { getBirdclawPaths, resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
 import { listFollowEvents, listUnfollowedSince } from "./follow-graph";
 import {
@@ -182,6 +190,7 @@ function makeRootDataArchive() {
 	const root = mkdtempSync(path.join(os.tmpdir(), "birdclaw-archive-root-"));
 	const archiveDir = path.join(root, "data");
 	mkdirSync(archiveDir, { recursive: true });
+	mkdirSync(path.join(archiveDir, "tweets_media"), { recursive: true });
 
 	writeFileSync(
 		path.join(archiveDir, "account.js"),
@@ -211,6 +220,10 @@ function makeRootDataArchive() {
     }
   }
 ]`,
+	);
+	writeFileSync(
+		path.join(archiveDir, "tweets_media", "rootmedia-archive.jpg"),
+		"root-media",
 	);
 	const archivePath = path.join(root, "archive.zip");
 	execFileSync("zip", ["-qr", archivePath, "data"], { cwd: root });
@@ -413,6 +426,120 @@ function makeFollowDmArchive(userId: string) {
 	return archivePath;
 }
 
+function makeMediaArchive() {
+	const root = mkdtempSync(path.join(os.tmpdir(), "birdclaw-archive-media-"));
+	const archiveDir = path.join(root, "sample", "data");
+	mkdirSync(path.join(archiveDir, "tweets_media"), { recursive: true });
+	mkdirSync(path.join(archiveDir, "direct_messages_media"), {
+		recursive: true,
+	});
+	mkdirSync(path.join(archiveDir, "profile_media"), { recursive: true });
+
+	writeFileSync(
+		path.join(archiveDir, "account.js"),
+		'window.YTD.account.part0 = [{ "account": { "accountId": "25401953", "username": "steipete" } }]',
+	);
+	writeFileSync(
+		path.join(
+			archiveDir,
+			"tweets_media",
+			"1727738789982839193-F_opG9tXYAACOd3.jpg",
+		),
+		"tweet-media",
+	);
+	writeFileSync(
+		path.join(archiveDir, "direct_messages_media", "m1-demo.png"),
+		"dm-media",
+	);
+	writeFileSync(
+		path.join(archiveDir, "profile_media", "profile-banner.jpg"),
+		"profile-media",
+	);
+
+	const archivePath = path.join(root, "archive.zip");
+	execFileSync("zip", ["-qr", archivePath, "sample"], { cwd: root });
+	createdDirs.push(root);
+	return archivePath;
+}
+
+function makeMediaVariantsArchive() {
+	const root = mkdtempSync(
+		path.join(os.tmpdir(), "birdclaw-archive-variants-"),
+	);
+	const archiveDir = path.join(root, "sample", "data");
+	mkdirSync(archiveDir, { recursive: true });
+
+	writeFileSync(
+		path.join(archiveDir, "account.js"),
+		'window.YTD.account.part0 = [{ "account": { "accountId": "25401953", "username": "steipete" } }]',
+	);
+	writeFileSync(
+		path.join(archiveDir, "tweets.js"),
+		`window.YTD.tweets.part0 = [
+  {
+    "tweet": {
+      "id_str": "video-1",
+      "created_at": "Tue Jun 03 19:32:20 +0000 2025",
+      "full_text": "video",
+      "extended_entities": {
+        "media": [{
+          "media_url_https": "https://pbs.twimg.com/video-thumb.jpg",
+          "type": "video",
+          "sizes": { "large": { "w": 1920, "h": 1080 } },
+          "video_info": {
+            "duration_millis": 46947,
+            "variants": [
+              { "bitrate": "832000", "content_type": "video/mp4", "url": "https://video.twimg.com/640.mp4" },
+              { "content_type": "application/x-mpegURL", "url": "https://video.twimg.com/playlist.m3u8" },
+              { "bitrate": "2176000", "content_type": "video/mp4", "url": "https://video.twimg.com/1280.mp4" }
+            ]
+          }
+        }]
+      }
+    }
+  },
+  {
+    "tweet": {
+      "id_str": "gif-1",
+      "created_at": "Tue Jun 03 19:33:20 +0000 2025",
+      "full_text": "gif",
+      "extended_entities": {
+        "media": [{
+          "media_url_https": "https://pbs.twimg.com/gif-thumb.jpg",
+          "type": "animated_gif",
+          "video_info": {
+            "variants": [
+              { "bitrate": "256000", "content_type": "video/mp4", "url": "https://video.twimg.com/gif.mp4" }
+            ]
+          }
+        }]
+      }
+    }
+  },
+  {
+    "tweet": {
+      "id_str": "photo-1",
+      "created_at": "Tue Jun 03 19:34:20 +0000 2025",
+      "full_text": "photo",
+      "extended_entities": {
+        "media": [{
+          "media_url_https": "https://pbs.twimg.com/photo.jpg",
+          "type": "photo",
+          "sizes": { "large": { "w": 1200, "h": 800 } },
+          "ext_alt_text": "Photo alt"
+        }]
+      }
+    }
+  }
+]`,
+	);
+
+	const archivePath = path.join(root, "archive.zip");
+	execFileSync("zip", ["-qr", archivePath, "sample"], { cwd: root });
+	createdDirs.push(root);
+	return archivePath;
+}
+
 describe("archive import", () => {
 	afterEach(() => {
 		resetDatabaseForTests();
@@ -496,6 +623,147 @@ describe("archive import", () => {
 		expect(liked.map((item) => item.text)).toEqual(["liked archive item"]);
 		expect(bookmarked.map((item) => item.text)).toEqual(["saved archive item"]);
 	}, 30000);
+
+	it("extracts archive media files into media originals", async () => {
+		const archivePath = makeMediaArchive();
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+
+		const result = await importArchive(archivePath);
+		const { mediaOriginalsDir } = getBirdclawPaths();
+		const tweetMediaPath = path.join(
+			mediaOriginalsDir,
+			"archive",
+			"tweets",
+			"1727738789982839193",
+			"1727738789982839193-F_opG9tXYAACOd3.jpg",
+		);
+		const dmMediaPath = path.join(
+			mediaOriginalsDir,
+			"archive",
+			"dms",
+			"m1",
+			"m1-demo.png",
+		);
+		const profileMediaPath = path.join(
+			mediaOriginalsDir,
+			"archive",
+			"profile",
+			"profile",
+			"profile-banner.jpg",
+		);
+		const tweetMediaMtime = statSync(tweetMediaPath).mtimeMs;
+
+		expect(result.counts.mediaFiles).toEqual({
+			tweets: 1,
+			dms: 1,
+			community: 0,
+			profile: 1,
+			deleted: 0,
+			moments: 0,
+			dmGroup: 0,
+		});
+		expect(readFileSync(tweetMediaPath, "utf8")).toBe("tweet-media");
+		expect(readFileSync(dmMediaPath, "utf8")).toBe("dm-media");
+		expect(readFileSync(profileMediaPath, "utf8")).toBe("profile-media");
+
+		await importArchive(archivePath);
+		expect(statSync(tweetMediaPath).mtimeMs).toBe(tweetMediaMtime);
+	});
+
+	it("skips archive media extraction for unrelated selected slices", async () => {
+		const archivePath = makeRootDataArchive();
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+
+		const result = await importArchive(archivePath, {
+			select: ["followers", "following"],
+		});
+		const rootMediaPath = path.join(
+			getBirdclawPaths().mediaOriginalsDir,
+			"archive",
+			"tweets",
+			"rootmedia",
+			"rootmedia-archive.jpg",
+		);
+
+		expect(result.counts.mediaFiles).toEqual({
+			tweets: 0,
+			dms: 0,
+			community: 0,
+			profile: 0,
+			deleted: 0,
+			moments: 0,
+			dmGroup: 0,
+		});
+		expect(existsSync(rootMediaPath)).toBe(false);
+	});
+
+	it("imports archive video variants into tweet media json", async () => {
+		const archivePath = makeMediaVariantsArchive();
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+
+		await importArchive(archivePath);
+		const rows = getNativeDb()
+			.prepare("select id, media_json from tweets order by id")
+			.all() as Array<{ id: string; media_json: string }>;
+		const mediaByTweet = new Map(
+			rows.map((row) => [row.id, JSON.parse(row.media_json)]),
+		);
+
+		expect(mediaByTweet.get("video-1")).toEqual([
+			{
+				url: "https://pbs.twimg.com/video-thumb.jpg",
+				type: "video",
+				altText: undefined,
+				thumbnailUrl: "https://pbs.twimg.com/video-thumb.jpg",
+				width: 1920,
+				height: 1080,
+				durationMs: 46947,
+				variants: [
+					{
+						url: "https://video.twimg.com/1280.mp4",
+						contentType: "video/mp4",
+						bitRate: 2176000,
+					},
+					{
+						url: "https://video.twimg.com/640.mp4",
+						contentType: "video/mp4",
+						bitRate: 832000,
+					},
+				],
+			},
+		]);
+		expect(mediaByTweet.get("gif-1")).toEqual([
+			{
+				url: "https://pbs.twimg.com/gif-thumb.jpg",
+				type: "gif",
+				altText: undefined,
+				thumbnailUrl: "https://pbs.twimg.com/gif-thumb.jpg",
+				variants: [
+					{
+						url: "https://video.twimg.com/gif.mp4",
+						contentType: "video/mp4",
+						bitRate: 256000,
+					},
+				],
+			},
+		]);
+		expect(mediaByTweet.get("photo-1")).toEqual([
+			{
+				url: "https://pbs.twimg.com/photo.jpg",
+				type: "image",
+				altText: "Photo alt",
+				thumbnailUrl: "https://pbs.twimg.com/photo.jpg",
+				width: 1200,
+				height: 800,
+			},
+		]);
+	});
 
 	it("clears mention sync state on full archive re-import", async () => {
 		const archivePath = makeArchive();
@@ -2599,9 +2867,18 @@ describe("archive import", () => {
 
 		const result = await importArchive(archivePath);
 		const db = getNativeDb();
+		const rootMediaPath = path.join(
+			getBirdclawPaths().mediaOriginalsDir,
+			"archive",
+			"tweets",
+			"rootmedia",
+			"rootmedia-archive.jpg",
+		);
 
 		expect(result.counts.tweets).toBe(1);
 		expect(result.counts.dmMessages).toBe(1);
+		expect(result.counts.mediaFiles.tweets).toBe(1);
+		expect(readFileSync(rootMediaPath, "utf8")).toBe("root-media");
 		expect(
 			(
 				db

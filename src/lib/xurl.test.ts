@@ -15,6 +15,29 @@ const RICH_USER_FIELDS =
 	"description%2Centities%2Clocation%2Cpublic_metrics%2Cprofile_image_url%2Curl%2Ccreated_at%2Cverified%2Cverified_type";
 const FOLLOW_USER_FIELDS =
 	"id%2Cusername%2Cname%2Cdescription%2Cverified%2Cprotected%2Cpublic_metrics%2Cprofile_image_url%2Ccreated_at";
+const AUTHOR_MEDIA_EXPANSIONS = "author_id%2Cattachments.media_keys";
+const MEDIA_EXPANSION = "attachments.media_keys";
+const MEDIA_FIELDS =
+	"variants%2Cpreview_image_url%2Curl%2Cduration_ms%2Calt_text%2Ctype%2Cwidth%2Cheight%2Cpublic_metrics";
+const THREAD_TWEET_FIELDS =
+	"created_at%2Cconversation_id%2Centities%2Cpublic_metrics%2Creferenced_tweets%2Cin_reply_to_user_id%2Cattachments";
+const PHOTO_MEDIA = {
+	media_key: "photo_1",
+	type: "photo",
+	url: "https://pbs.twimg.com/media/photo_1.jpg",
+} as const;
+const VIDEO_MEDIA = {
+	media_key: "video_1",
+	type: "video",
+	preview_image_url: "https://pbs.twimg.com/ext_tw_video_thumb/video_1.jpg",
+	variants: [
+		{
+			url: "https://video.twimg.com/ext_tw_video/video_1.mp4",
+			content_type: "video/mp4",
+			bit_rate: 2176000,
+		},
+	],
+} as const;
 
 describe("xurl transport wrapper", () => {
 	beforeEach(() => {
@@ -175,8 +198,18 @@ describe("xurl transport wrapper", () => {
 		});
 		execFileAsyncMock.mockResolvedValueOnce({
 			stdout: JSON.stringify({
-				data: [{ id: "tweet_1", author_id: "42", text: "hello" }],
-				includes: { users: [{ id: "42", username: "sam", name: "Sam" }] },
+				data: [
+					{
+						id: "tweet_1",
+						author_id: "42",
+						text: "hello",
+						attachments: { media_keys: ["photo_1", "video_1"] },
+					},
+				],
+				includes: {
+					users: [{ id: "42", username: "sam", name: "Sam" }],
+					media: [PHOTO_MEDIA, VIDEO_MEDIA],
+				},
 				meta: { result_count: 1 },
 			}),
 			stderr: "",
@@ -189,12 +222,22 @@ describe("xurl transport wrapper", () => {
 				username: "steipete",
 			}),
 		).resolves.toEqual({
-			data: [{ id: "tweet_1", author_id: "42", text: "hello" }],
-			includes: { users: [{ id: "42", username: "sam", name: "Sam" }] },
+			data: [
+				{
+					id: "tweet_1",
+					author_id: "42",
+					text: "hello",
+					attachments: { media_keys: ["photo_1", "video_1"] },
+				},
+			],
+			includes: {
+				users: [{ id: "42", username: "sam", name: "Sam" }],
+				media: [PHOTO_MEDIA, VIDEO_MEDIA],
+			},
 			meta: { result_count: 1 },
 		});
 		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", [
-			`/2/users/25401953/mentions?max_results=5&expansions=author_id&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics&user.fields=${RICH_USER_FIELDS}`,
+			`/2/users/25401953/mentions?max_results=5&expansions=${AUTHOR_MEDIA_EXPANSIONS}&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics&media.fields=${MEDIA_FIELDS}&user.fields=${RICH_USER_FIELDS}`,
 		]);
 	});
 
@@ -219,7 +262,7 @@ describe("xurl transport wrapper", () => {
 			meta: { next_token: "next-page" },
 		});
 		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", [
-			`/2/users/25401953/mentions?max_results=100&expansions=author_id&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics&user.fields=${RICH_USER_FIELDS}&pagination_token=next-page`,
+			`/2/users/25401953/mentions?max_results=100&expansions=${AUTHOR_MEDIA_EXPANSIONS}&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics&media.fields=${MEDIA_FIELDS}&user.fields=${RICH_USER_FIELDS}&pagination_token=next-page`,
 		]);
 	});
 
@@ -240,7 +283,7 @@ describe("xurl transport wrapper", () => {
 		});
 
 		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", [
-			`/2/users/25401953/mentions?max_results=100&expansions=author_id&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics&user.fields=${RICH_USER_FIELDS}&start_time=2026-03-01T00%3A00%3A00Z`,
+			`/2/users/25401953/mentions?max_results=100&expansions=${AUTHOR_MEDIA_EXPANSIONS}&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics&media.fields=${MEDIA_FIELDS}&user.fields=${RICH_USER_FIELDS}&start_time=2026-03-01T00%3A00%3A00Z`,
 		]);
 	});
 
@@ -332,7 +375,7 @@ describe("xurl transport wrapper", () => {
 			nextToken: "next",
 		});
 		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", [
-			"/2/users/42/tweets?max_results=12&tweet.fields=created_at%2Cconversation_id%2Cpublic_metrics%2Creferenced_tweets&exclude=retweets",
+			`/2/users/42/tweets?max_results=12&expansions=${MEDIA_EXPANSION}&tweet.fields=created_at%2Cconversation_id%2Cpublic_metrics%2Creferenced_tweets&media.fields=${MEDIA_FIELDS}&exclude=retweets`,
 		]);
 	});
 
@@ -373,7 +416,7 @@ describe("xurl transport wrapper", () => {
 			meta: { result_count: 1 },
 		});
 		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", [
-			`/2/tweets?ids=tweet_1&expansions=author_id&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics%2Creferenced_tweets&user.fields=${RICH_USER_FIELDS}`,
+			`/2/tweets?ids=tweet_1&expansions=${AUTHOR_MEDIA_EXPANSIONS}&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics%2Creferenced_tweets&media.fields=${MEDIA_FIELDS}&user.fields=${RICH_USER_FIELDS}`,
 		]);
 	});
 
@@ -406,10 +449,10 @@ describe("xurl transport wrapper", () => {
 		});
 		await getTweetById("tweet_1");
 		expect(execFileAsyncMock).toHaveBeenNthCalledWith(1, "xurl", [
-			`/2/tweets/search/recent?query=conversation_id%3A123&max_results=100&expansions=author_id&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics%2Creferenced_tweets%2Cin_reply_to_user_id&user.fields=${RICH_USER_FIELDS}&pagination_token=cursor`,
+			`/2/tweets/search/recent?query=conversation_id%3A123&max_results=100&expansions=${AUTHOR_MEDIA_EXPANSIONS}&tweet.fields=${THREAD_TWEET_FIELDS}&media.fields=${MEDIA_FIELDS}&user.fields=${RICH_USER_FIELDS}&pagination_token=cursor`,
 		]);
 		expect(execFileAsyncMock).toHaveBeenNthCalledWith(2, "xurl", [
-			`/2/tweets/tweet_1?expansions=author_id&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics%2Creferenced_tweets%2Cin_reply_to_user_id&user.fields=${RICH_USER_FIELDS}`,
+			`/2/tweets/tweet_1?expansions=${AUTHOR_MEDIA_EXPANSIONS}&tweet.fields=${THREAD_TWEET_FIELDS}&media.fields=${MEDIA_FIELDS}&user.fields=${RICH_USER_FIELDS}`,
 		]);
 	});
 
@@ -444,7 +487,7 @@ describe("xurl transport wrapper", () => {
 			expect(execFileAsyncMock).toHaveBeenCalledWith(
 				"xurl",
 				[
-					`/2/tweets/tweet_1?expansions=author_id&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics%2Creferenced_tweets%2Cin_reply_to_user_id&user.fields=${RICH_USER_FIELDS}`,
+					`/2/tweets/tweet_1?expansions=${AUTHOR_MEDIA_EXPANSIONS}&tweet.fields=${THREAD_TWEET_FIELDS}&media.fields=${MEDIA_FIELDS}&user.fields=${RICH_USER_FIELDS}`,
 				],
 				expect.objectContaining({ signal: expect.any(Object) }),
 			);
@@ -476,8 +519,18 @@ describe("xurl transport wrapper", () => {
 			})
 			.mockResolvedValueOnce({
 				stdout: JSON.stringify({
-					data: [{ id: "liked_1", author_id: "42", text: "liked" }],
-					includes: { users: [{ id: "42", username: "sam", name: "Sam" }] },
+					data: [
+						{
+							id: "liked_1",
+							author_id: "42",
+							text: "liked",
+							attachments: { media_keys: ["photo_1", "video_1"] },
+						},
+					],
+					includes: {
+						users: [{ id: "42", username: "sam", name: "Sam" }],
+						media: [PHOTO_MEDIA, VIDEO_MEDIA],
+					},
 					meta: { result_count: 1 },
 				}),
 				stderr: "",
@@ -498,8 +551,18 @@ describe("xurl transport wrapper", () => {
 				username: "steipete",
 			}),
 		).resolves.toEqual({
-			data: [{ id: "liked_1", author_id: "42", text: "liked" }],
-			includes: { users: [{ id: "42", username: "sam", name: "Sam" }] },
+			data: [
+				{
+					id: "liked_1",
+					author_id: "42",
+					text: "liked",
+					attachments: { media_keys: ["photo_1", "video_1"] },
+				},
+			],
+			includes: {
+				users: [{ id: "42", username: "sam", name: "Sam" }],
+				media: [PHOTO_MEDIA, VIDEO_MEDIA],
+			},
 			meta: { result_count: 1 },
 		});
 		await expect(
@@ -515,12 +578,12 @@ describe("xurl transport wrapper", () => {
 		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", [
 			"--auth",
 			"oauth2",
-			`/2/users/25401953/liked_tweets?max_results=5&expansions=author_id&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics%2Creferenced_tweets&user.fields=${RICH_USER_FIELDS}`,
+			`/2/users/25401953/liked_tweets?max_results=5&expansions=${AUTHOR_MEDIA_EXPANSIONS}&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics%2Creferenced_tweets&media.fields=${MEDIA_FIELDS}&user.fields=${RICH_USER_FIELDS}`,
 		]);
 		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", [
 			"--auth",
 			"oauth2",
-			`/2/users/25401953/bookmarks?max_results=100&expansions=author_id&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics%2Creferenced_tweets&user.fields=${RICH_USER_FIELDS}&pagination_token=next`,
+			`/2/users/25401953/bookmarks?max_results=100&expansions=${AUTHOR_MEDIA_EXPANSIONS}&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics%2Creferenced_tweets&media.fields=${MEDIA_FIELDS}&user.fields=${RICH_USER_FIELDS}&pagination_token=next`,
 		]);
 	});
 
@@ -558,17 +621,17 @@ describe("xurl transport wrapper", () => {
 		expect(execFileAsyncMock).toHaveBeenNthCalledWith(1, "xurl", [
 			"--auth",
 			"oauth2",
-			`/2/users/25401953/bookmarks?max_results=90&expansions=author_id&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics%2Creferenced_tweets&user.fields=${RICH_USER_FIELDS}`,
+			`/2/users/25401953/bookmarks?max_results=90&expansions=${AUTHOR_MEDIA_EXPANSIONS}&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics%2Creferenced_tweets&media.fields=${MEDIA_FIELDS}&user.fields=${RICH_USER_FIELDS}`,
 		]);
 		expect(execFileAsyncMock).toHaveBeenNthCalledWith(2, "xurl", [
 			"--auth",
 			"oauth2",
-			`/2/users/25401953/bookmarks?max_results=100&expansions=author_id&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics%2Creferenced_tweets&user.fields=${RICH_USER_FIELDS}`,
+			`/2/users/25401953/bookmarks?max_results=100&expansions=${AUTHOR_MEDIA_EXPANSIONS}&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics%2Creferenced_tweets&media.fields=${MEDIA_FIELDS}&user.fields=${RICH_USER_FIELDS}`,
 		]);
 		expect(execFileAsyncMock).toHaveBeenNthCalledWith(3, "xurl", [
 			"--auth",
 			"oauth2",
-			`/2/users/25401953/liked_tweets?max_results=100&expansions=author_id&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics%2Creferenced_tweets&user.fields=${RICH_USER_FIELDS}`,
+			`/2/users/25401953/liked_tweets?max_results=100&expansions=${AUTHOR_MEDIA_EXPANSIONS}&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics%2Creferenced_tweets&media.fields=${MEDIA_FIELDS}&user.fields=${RICH_USER_FIELDS}`,
 		]);
 	});
 
@@ -675,7 +738,7 @@ describe("xurl transport wrapper", () => {
 			nextToken: null,
 		});
 		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", [
-			"/2/users/42/tweets?max_results=50&tweet.fields=created_at%2Cconversation_id%2Cpublic_metrics%2Creferenced_tweets&pagination_token=next-page",
+			`/2/users/42/tweets?max_results=50&expansions=${MEDIA_EXPANSION}&tweet.fields=created_at%2Cconversation_id%2Cpublic_metrics%2Creferenced_tweets&media.fields=${MEDIA_FIELDS}&pagination_token=next-page`,
 		]);
 	});
 
@@ -717,7 +780,7 @@ describe("xurl transport wrapper", () => {
 		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", [
 			"--auth",
 			"oauth2",
-			"/2/users/42/tweets?max_results=100&tweet.fields=author_id%2Ccreated_at&expansions=author_id%2Cattachments.media_keys&user.fields=id%2Cusername&media.fields=media_key%2Ctype&since_id=10&until_id=20&pagination_token=page",
+			"/2/users/42/tweets?max_results=100&expansions=author_id%2Cattachments.media_keys&tweet.fields=author_id%2Ccreated_at&media.fields=media_key%2Ctype&user.fields=id%2Cusername&since_id=10&until_id=20&pagination_token=page",
 		]);
 	});
 
