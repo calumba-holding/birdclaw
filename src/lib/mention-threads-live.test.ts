@@ -252,15 +252,26 @@ describe("mention thread sync", () => {
 			meta: { result_count: 1 },
 		});
 		const { syncMentionThreads } = await import("./mention-threads-live");
+		const progress: unknown[] = [];
 
 		const result = await syncMentionThreads({
 			tweetIds: ["mention_1"],
 			limit: 5,
 			delayMs: 0,
 			timeoutMs: 5000,
+			onProgress: (value) => progress.push(value),
 		});
 
 		expect(result.options.tweetIds).toEqual(["mention_1"]);
+		expect(progress).toEqual([
+			expect.objectContaining({
+				source: "bird",
+				processed: 1,
+				total: 1,
+				fetched: 1,
+				done: true,
+			}),
+		]);
 		expect(mocks.listThreadViaBird).toHaveBeenCalledTimes(1);
 		expect(mocks.listThreadViaBird).toHaveBeenCalledWith(
 			expect.objectContaining({ tweetId: "mention_1" }),

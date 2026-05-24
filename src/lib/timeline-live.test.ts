@@ -228,19 +228,39 @@ describe("live home timeline sync", () => {
 				includes: {
 					users: [{ id: "43", username: "lee", name: "Lee" }],
 				},
-				meta: {},
+				meta: { next_token: "unused-page" },
 			});
 		const { syncHomeTimeline } = await import("./timeline-live");
+		const progress: unknown[] = [];
 
 		const result = await syncHomeTimeline({
 			account: "acct_primary",
 			mode: "xurl",
-			limit: 2,
+			limit: 3,
 			maxPages: 2,
 			refresh: true,
+			onProgress: (value) => progress.push(value),
 		});
 
 		expect(result).toMatchObject({ source: "xurl", count: 2 });
+		expect(progress).toEqual([
+			expect.objectContaining({
+				source: "xurl",
+				fetched: 1,
+				total: 3,
+				page: 1,
+				maxPages: 2,
+				done: false,
+			}),
+			expect.objectContaining({
+				source: "xurl",
+				fetched: 2,
+				total: 3,
+				page: 2,
+				maxPages: 2,
+				done: true,
+			}),
+		]);
 		expect(listHomeTimelineViaXurlMock).toHaveBeenNthCalledWith(
 			1,
 			expect.objectContaining({

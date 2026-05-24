@@ -24,6 +24,15 @@ export const DEFAULT_MENTIONS_CACHE_TTL_MS = 2 * 60_000;
 const MIN_XURL_MENTIONS_LIMIT = 5;
 const MAX_XURL_MENTIONS_LIMIT = 100;
 type MentionSyncMode = Exclude<MentionsDataSource, "birdclaw">;
+export interface MentionsProgress {
+	source: "bird" | "xurl" | "cache";
+	fetched: number;
+	total?: number;
+	page?: number;
+	maxPages?: number;
+	pageSize?: number;
+	done: boolean;
+}
 export interface SyncMentionsOptions {
 	account?: string;
 	mode?: string;
@@ -33,6 +42,7 @@ export interface SyncMentionsOptions {
 	cacheTtlMs?: number;
 	sinceId?: string;
 	startTime?: string;
+	onProgress?: (progress: MentionsProgress) => void;
 }
 interface ExportMentionsViaCachedLiveSourceOptions {
 	mode: MentionsDataSource;
@@ -708,6 +718,7 @@ function fetchMentionsViaXurlEffect({
 	sinceId,
 	startPaginationToken,
 	startTime,
+	onProgress,
 }: {
 	resolvedAccount: ReturnType<typeof resolveAccount>;
 	limit: number;
@@ -716,6 +727,7 @@ function fetchMentionsViaXurlEffect({
 	sinceId?: string;
 	startPaginationToken?: string;
 	startTime?: string;
+	onProgress?: (progress: MentionsProgress) => void;
 }) {
 	return Effect.gen(function* () {
 		const accountUserId =
@@ -752,6 +764,22 @@ function fetchMentionsViaXurlEffect({
 					: undefined;
 			nextToken = metaNextToken;
 			pageCount += 1;
+			const fetched = pages.reduce((sum, item) => sum + item.data.length, 0);
+			const done =
+				!all ||
+				!nextToken ||
+				(parsedMaxPages !== null && pageCount >= parsedMaxPages);
+			yield* Effect.sync(() =>
+				onProgress?.({
+					source: "xurl",
+					fetched,
+					total: parsedMaxPages === null ? undefined : parsedMaxPages * limit,
+					page: pageCount,
+					maxPages: parsedMaxPages ?? undefined,
+					pageSize: limit,
+					done,
+				}),
+			);
 		} while (
 			all &&
 			nextToken &&
@@ -789,6 +817,7 @@ export function syncMentionsEffect({
 	cacheTtlMs,
 	sinceId,
 	startTime,
+	onProgress,
 }: SyncMentionsOptions) {
 	return Effect.gen(function* () {
 		const parsedMode = yield* trySync(() => parseSyncMode(mode));
@@ -908,6 +937,14 @@ export function syncMentionsEffect({
 					parsedMode,
 				),
 			);
+			yield* Effect.sync(() =>
+				onProgress?.({
+					source: "cache",
+					fetched: cached.value.data.length,
+					total: parsedMaxPages === null ? undefined : parsedMaxPages * limit,
+					done: true,
+				}),
+			);
 			return {
 				ok: true,
 				source: "cache",
@@ -945,7 +982,18 @@ export function syncMentionsEffect({
 						sinceId: resolvedSinceId,
 						startPaginationToken,
 						startTime: resolvedStartTime,
+						onProgress,
 					});
+		if (parsedMode === "bird") {
+			yield* Effect.sync(() =>
+				onProgress?.({
+					source: "bird",
+					fetched: payload.data.length,
+					total: limit,
+					done: true,
+				}),
+			);
+		}
 		yield* trySync(() =>
 			mergeMentionsIntoLocalStore(
 				db,

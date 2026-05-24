@@ -608,6 +608,42 @@ function emitDigestStatus(
 	});
 }
 
+function formatFetchedStatus({
+	fetched,
+	total,
+	noun,
+}: {
+	fetched: number;
+	total?: number;
+	noun: string;
+}) {
+	const count =
+		total === undefined
+			? String(fetched)
+			: `${String(Math.min(fetched, total))}/${String(total)}`;
+	return `Fetched ${count} ${noun}`;
+}
+
+function formatPageDetail({
+	source,
+	page,
+	maxPages,
+	done,
+}: {
+	source: string;
+	page?: number;
+	maxPages?: number;
+	done: boolean;
+}) {
+	const pageText =
+		page === undefined
+			? undefined
+			: `page ${String(page)}${maxPages === undefined ? "" : `/${String(maxPages)}`}`;
+	return [source, pageText, done ? "done" : undefined]
+		.filter(Boolean)
+		.join(" · ");
+}
+
 function refreshPeriodDigestInputsEffect(
 	options: PeriodDigestOptions,
 	phase: {
@@ -627,6 +663,10 @@ function refreshPeriodDigestInputsEffect(
 	const window = resolvePeriodDigestWindow(options);
 	const liveStartTime = floorIsoToHour(window.since);
 	const mode = options.liveSyncMode ?? "xurl";
+	const contextTweetBudget = Math.max(
+		20,
+		Math.trunc(options.maxTweets ?? DEFAULT_MAX_TWEETS),
+	);
 	const timelineLimit =
 		options.liveTimelineLimit === undefined
 			? undefined
@@ -669,6 +709,21 @@ function refreshPeriodDigestInputsEffect(
 				refresh: Boolean(options.refresh),
 				cacheTtlMs: 2 * 60_000,
 				timeoutMs: 30_000,
+				onProgress: (progress) =>
+					emitDigestStatus(
+						handlers,
+						formatFetchedStatus({
+							fetched: progress.fetched,
+							total: progress.total ?? contextTweetBudget,
+							noun: "home tweets",
+						}),
+						formatPageDetail({
+							source: progress.source,
+							page: progress.page,
+							maxPages: progress.maxPages,
+							done: progress.done,
+						}),
+					),
 			}).pipe(
 				Effect.match({
 					onFailure: () => null,
@@ -700,6 +755,21 @@ function refreshPeriodDigestInputsEffect(
 				startTime: liveStartTime,
 				refresh: Boolean(options.refresh),
 				cacheTtlMs: 2 * 60_000,
+				onProgress: (progress) =>
+					emitDigestStatus(
+						handlers,
+						formatFetchedStatus({
+							fetched: progress.fetched,
+							total: progress.total ?? contextTweetBudget,
+							noun: "mentions",
+						}),
+						formatPageDetail({
+							source: progress.source,
+							page: progress.page,
+							maxPages: progress.maxPages,
+							done: progress.done,
+						}),
+					),
 			}).pipe(
 				Effect.match({
 					onFailure: () => null,
@@ -731,6 +801,14 @@ function refreshPeriodDigestInputsEffect(
 				delayMs: 100,
 				timeoutMs: DEFAULT_LIVE_THREAD_TIMEOUT_MS,
 				maxPages: 2,
+				onProgress: (progress) =>
+					emitDigestStatus(
+						handlers,
+						`Fetched conversations for ${String(progress.processed)}/${String(progress.total)} mentions`,
+						`${String(progress.fetched)} tweets · ${progress.source}${
+							progress.done ? " · done" : ""
+						}`,
+					),
 			}).pipe(
 				Effect.match({
 					onFailure: () => null,

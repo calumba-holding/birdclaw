@@ -18,6 +18,15 @@ const DEFAULT_TIMELINE_CACHE_TTL_MS = 2 * 60_000;
 const MAX_XURL_TIMELINE_PAGE_SIZE = 100;
 
 export type HomeTimelineMode = "bird" | "xurl" | "auto";
+export interface HomeTimelineProgress {
+	source: "bird" | "xurl" | "cache";
+	fetched: number;
+	total?: number;
+	page?: number;
+	maxPages?: number;
+	pageSize?: number;
+	done: boolean;
+}
 export interface SyncHomeTimelineOptions {
 	account?: string;
 	mode?: HomeTimelineMode;
@@ -28,6 +37,7 @@ export interface SyncHomeTimelineOptions {
 	refresh?: boolean;
 	cacheTtlMs?: number;
 	timeoutMs?: number;
+	onProgress?: (progress: HomeTimelineProgress) => void;
 }
 
 function parseCacheTtlMs(value?: number) {
@@ -261,6 +271,7 @@ export function syncHomeTimelineEffect({
 	refresh = false,
 	cacheTtlMs,
 	timeoutMs,
+	onProgress,
 }: SyncHomeTimelineOptions = {}): Effect.Effect<
 	{
 		ok: true;
@@ -307,6 +318,14 @@ export function syncHomeTimelineEffect({
 			: Number.POSITIVE_INFINITY;
 
 		if (!refresh && cached && cacheAgeMs <= ttlMs) {
+			yield* Effect.sync(() =>
+				onProgress?.({
+					source: "cache",
+					fetched: cached.value.data.length,
+					total: Number.isFinite(effectiveLimit) ? effectiveLimit : undefined,
+					done: true,
+				}),
+			);
 			return {
 				ok: true,
 				source: "cache",
@@ -350,12 +369,26 @@ export function syncHomeTimelineEffect({
 					typeof pagePayload.meta?.next_token === "string"
 						? pagePayload.meta.next_token
 						: undefined;
-				if (
+				const totalFetched = fetchedCount + pagePayload.data.length;
+				const done =
 					!nextToken ||
-					(Number.isFinite(effectiveLimit) &&
-						fetchedCount + pagePayload.data.length >= effectiveLimit) ||
-					reachedStartTimeBoundary(pagePayload, parsedStartTime?.time)
-				) {
+					(Number.isFinite(parsedMaxPages) && page + 1 >= parsedMaxPages) ||
+					(Number.isFinite(effectiveLimit) && totalFetched >= effectiveLimit) ||
+					reachedStartTimeBoundary(pagePayload, parsedStartTime?.time);
+				yield* Effect.sync(() =>
+					onProgress?.({
+						source: "xurl",
+						fetched: totalFetched,
+						total: Number.isFinite(effectiveLimit) ? effectiveLimit : undefined,
+						page: page + 1,
+						maxPages: Number.isFinite(parsedMaxPages)
+							? parsedMaxPages
+							: undefined,
+						pageSize,
+						done,
+					}),
+				);
+				if (done) {
 					break;
 				}
 			}
@@ -387,6 +420,16 @@ export function syncHomeTimelineEffect({
 				following,
 			});
 			source = "bird";
+		}
+		if (source === "bird") {
+			yield* Effect.sync(() =>
+				onProgress?.({
+					source: "bird",
+					fetched: payload.data.length,
+					total: finiteFallbackLimit,
+					done: true,
+				}),
+			);
 		}
 		mergeHomeTimelineIntoLocalStore(db, accountId, payload, source);
 		writeSyncCache(cacheKey, payload, db);

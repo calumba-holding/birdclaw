@@ -1534,6 +1534,7 @@ describe("cached live mentions", () => {
 			},
 		});
 		const { syncMentions } = await import("./mentions-live");
+		const progress: unknown[] = [];
 
 		const result = await syncMentions({
 			account: "acct_primary",
@@ -1541,6 +1542,7 @@ describe("cached live mentions", () => {
 			limit: 5,
 			maxPages: 1,
 			refresh: true,
+			onProgress: (value) => progress.push(value),
 		});
 
 		expect(result).toMatchObject({
@@ -1551,6 +1553,17 @@ describe("cached live mentions", () => {
 			partial: true,
 			payload: { meta: { page_count: 1, next_token: "page-2" } },
 		});
+		expect(progress).toEqual([
+			expect.objectContaining({
+				source: "xurl",
+				fetched: 1,
+				total: 5,
+				page: 1,
+				maxPages: 1,
+				pageSize: 5,
+				done: true,
+			}),
+		]);
 		expect(listMentionsViaXurlMock).toHaveBeenCalledTimes(1);
 	});
 

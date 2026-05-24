@@ -175,4 +175,78 @@ describe("period digest live refresh", () => {
 		expect(threadOptions.tweetIds).toEqual(expect.any(Array));
 		expect(threadOptions.tweetIds?.length).toBeGreaterThan(0);
 	});
+
+	it("streams counted live-fetch progress before the model response", async () => {
+		const streamed = [
+			sseFrame({
+				type: "response.output_text.delta",
+				delta:
+					'# Live\n\nFresh pass.\n\n---\n{"title":"Live","summary":"Fresh pass","keyTopics":[],"notableLinks":[],"people":[],"actionItems":[],"sourceTweetIds":[]}',
+			}),
+			"data: [DONE]\n\n",
+		].join("");
+		vi.stubGlobal("fetch", vi.fn().mockResolvedValue(streamResponse(streamed)));
+		syncHomeTimelineMock.mockImplementation(async (options: unknown) => {
+			(options as { onProgress?: (value: unknown) => void }).onProgress?.({
+				source: "xurl",
+				fetched: 200,
+				page: 2,
+				done: false,
+			});
+			return { ok: true, source: "xurl", count: 200 };
+		});
+		syncMentionsMock.mockImplementation(async (options: unknown) => {
+			(options as { onProgress?: (value: unknown) => void }).onProgress?.({
+				source: "xurl",
+				fetched: 100,
+				total: 500,
+				page: 1,
+				maxPages: 5,
+				done: false,
+			});
+			return { ok: true, source: "xurl", count: 100 };
+		});
+		syncMentionThreadsMock.mockImplementation(async (options: unknown) => {
+			(options as { onProgress?: (value: unknown) => void }).onProgress?.({
+				source: "xurl",
+				processed: 3,
+				total: 12,
+				fetched: 41,
+				done: false,
+			});
+			return { ok: true, source: "xurl", uniqueTweets: 41, mergedTweets: 50 };
+		});
+		const events: unknown[] = [];
+
+		await streamPeriodDigest(
+			{
+				since: "2026-01-01T00:00:00.000Z",
+				until: "2027-01-01T00:00:00.000Z",
+				refresh: true,
+				liveSync: true,
+				maxTweets: 5000,
+			},
+			{ onEvent: (event) => events.push(event) },
+		);
+
+		expect(events).toEqual(
+			expect.arrayContaining([
+				{
+					type: "status",
+					label: "Fetched 200/5000 home tweets",
+					detail: "xurl · page 2",
+				},
+				{
+					type: "status",
+					label: "Fetched 100/500 mentions",
+					detail: "xurl · page 1/5",
+				},
+				{
+					type: "status",
+					label: "Fetched conversations for 3/12 mentions",
+					detail: "41 tweets · xurl",
+				},
+			]),
+		);
+	});
 });

@@ -23,6 +23,13 @@ const DEFAULT_FALLBACK_DEPTH = 12;
 const MAX_XURL_SEARCH_RESULTS = 100;
 
 export type MentionThreadsMode = "bird" | "xurl";
+export interface MentionThreadsProgress {
+	source: MentionThreadsMode;
+	processed: number;
+	total: number;
+	fetched: number;
+	done: boolean;
+}
 export interface SyncMentionThreadsOptions {
 	account?: string;
 	mode?: string;
@@ -32,6 +39,7 @@ export interface SyncMentionThreadsOptions {
 	timeoutMs?: number;
 	all?: boolean;
 	maxPages?: number;
+	onProgress?: (progress: MentionThreadsProgress) => void;
 }
 
 interface LocalMention {
@@ -717,6 +725,7 @@ export function syncMentionThreadsEffect({
 	timeoutMs = DEFAULT_TIMEOUT_MS,
 	all = false,
 	maxPages,
+	onProgress,
 }: SyncMentionThreadsOptions) {
 	return Effect.gen(function* () {
 		const parsedMode = yield* trySync(() => parseMode(mode));
@@ -824,6 +833,15 @@ export function syncMentionThreadsEffect({
 							? fetched.error.message
 							: String(fetched.error),
 				});
+				yield* Effect.sync(() =>
+					onProgress?.({
+						source: parsedMode,
+						processed: index + 1,
+						total: mentions.length,
+						fetched: uniqueTweetIds.size,
+						done: index + 1 === mentions.length,
+					}),
+				);
 				continue;
 			}
 
@@ -847,6 +865,15 @@ export function syncMentionThreadsEffect({
 				warnings:
 					fetchResult.warnings.length > 0 ? fetchResult.warnings : undefined,
 			});
+			yield* Effect.sync(() =>
+				onProgress?.({
+					source: parsedMode,
+					processed: index + 1,
+					total: mentions.length,
+					fetched: uniqueTweetIds.size,
+					done: index + 1 === mentions.length,
+				}),
+			);
 		}
 
 		const failures = results.filter((item) => !item.ok);
