@@ -5,10 +5,15 @@ import { prefetchCachedAvatarsForProfileIdsEffect } from "./avatar-cache";
 import {
 	runEffectBackground,
 	runEffectPromise,
-	tryPromise,
 } from "./effect-runtime";
 import { getNativeDb } from "./db";
 import { listDmConversations } from "./dm-read-model";
+import {
+	type OpenAIStreamState,
+	processOpenAIResponseSseChunk,
+	readOpenAIResponseStreamEffect,
+	requestOpenAIResponseEffect,
+} from "./openai-response-runtime";
 import { listTimelineItems } from "./timeline-read-model";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
 import {
@@ -130,16 +135,6 @@ export type SearchDiscussionStreamEvent =
 	| { type: "done"; result: SearchDiscussionRunResult }
 	| { type: "error"; error: string };
 
-interface OpenAIStreamState {
-	eventBuffer: string;
-	rawText: string;
-	pendingVisible: string;
-	jsonMode: boolean;
-	responseId?: string;
-	usage?: unknown;
-	error?: string;
-}
-
 const DEFAULT_MODEL = "gpt-5.5";
 const DEFAULT_REASONING_EFFORT = "medium";
 const DEFAULT_SERVICE_TIER = "priority";
@@ -147,7 +142,6 @@ const DEFAULT_LIMIT = 20_000;
 const DEFAULT_MAX_PAGES = 200;
 const MAX_PROMPT_DATA_CHARS = 1_200_000;
 const DELIMITER_PATTERN = /\n---\s*\n/;
-const VISIBLE_DELIMITER_HOLD = 8;
 
 function toError(error: unknown) {
 	return error instanceof Error ? error : new Error(String(error));
@@ -158,12 +152,6 @@ function trySearchSync<T>(try_: () => T): Effect.Effect<T, Error> {
 		try: try_,
 		catch: toError,
 	});
-}
-
-function trySearchPromise<T>(
-	try_: () => PromiseLike<T>,
-): Effect.Effect<T, Error> {
-	return tryPromise(try_).pipe(Effect.mapError(toError));
 }
 
 function tweetUrl(handle: string, id: string) {
@@ -685,126 +673,18 @@ function parseDiscussionFromHybridText(
 	return { markdown, discussion: fallbackDiscussion(context, markdown) };
 }
 
-function emitVisibleDelta(
-	state: OpenAIStreamState,
-	delta: string,
-	handlers: SearchDiscussionStreamHandlers,
-) {
-	state.rawText += delta;
-	if (state.jsonMode) return;
-
-	const combined = state.pendingVisible + delta;
-	const delimiterIndex = combined.search(DELIMITER_PATTERN);
-	if (delimiterIndex >= 0) {
-		const visible = combined.slice(0, delimiterIndex);
-		if (visible) {
-			handlers.onDelta?.(visible);
-			handlers.onEvent?.({ type: "delta", delta: visible });
-		}
-		state.pendingVisible = "";
-		state.jsonMode = true;
-		return;
-	}
-
-	if (combined.length <= VISIBLE_DELIMITER_HOLD) {
-		state.pendingVisible = combined;
-		return;
-	}
-
-	const visible = combined.slice(0, -VISIBLE_DELIMITER_HOLD);
-	state.pendingVisible = combined.slice(-VISIBLE_DELIMITER_HOLD);
-	if (visible) {
-		handlers.onDelta?.(visible);
-		handlers.onEvent?.({ type: "delta", delta: visible });
-	}
-}
-
-function flushPendingVisible(
-	state: OpenAIStreamState,
-	handlers: SearchDiscussionStreamHandlers,
-) {
-	if (state.jsonMode || !state.pendingVisible) return;
-	const delta = state.pendingVisible;
-	state.pendingVisible = "";
-	handlers.onDelta?.(delta);
-	handlers.onEvent?.({ type: "delta", delta });
-}
-
-function handleOpenAIEvent(
-	state: OpenAIStreamState,
-	event: Record<string, unknown>,
-	handlers: SearchDiscussionStreamHandlers,
-) {
-	const type = typeof event.type === "string" ? event.type : "";
-	if (
-		type === "response.output_text.delta" &&
-		typeof event.delta === "string"
-	) {
-		emitVisibleDelta(state, event.delta, handlers);
-		return;
-	}
-	if (type === "response.completed") {
-		const response = event.response;
-		if (response && typeof response === "object") {
-			const record = response as Record<string, unknown>;
-			state.responseId = typeof record.id === "string" ? record.id : undefined;
-			state.usage = record.usage;
-		}
-		return;
-	}
-	if (type === "response.error" || type === "error") {
-		const error = event.error;
-		state.error =
-			error && typeof error === "object" && "message" in error
-				? String((error as { message?: unknown }).message)
-				: "OpenAI stream failed";
-		return;
-	}
-	if (type === "response.failed" || type === "response.incomplete") {
-		const response = event.response;
-		const record =
-			response && typeof response === "object"
-				? (response as Record<string, unknown>)
-				: {};
-		const error = record.error;
-		const incomplete = record.incomplete_details;
-		state.error =
-			error && typeof error === "object" && "message" in error
-				? String((error as { message?: unknown }).message)
-				: incomplete && typeof incomplete === "object" && "reason" in incomplete
-					? `OpenAI response incomplete: ${String((incomplete as { reason?: unknown }).reason)}`
-					: "OpenAI stream failed";
-	}
-}
-
 function processSseChunk(
 	state: OpenAIStreamState,
 	chunk: string,
 	handlers: SearchDiscussionStreamHandlers,
 ) {
-	state.eventBuffer += chunk;
-	let boundary = state.eventBuffer.indexOf("\n\n");
-	while (boundary >= 0) {
-		const block = state.eventBuffer.slice(0, boundary);
-		state.eventBuffer = state.eventBuffer.slice(boundary + 2);
-		const data = block
-			.split("\n")
-			.filter((line) => line.startsWith("data:"))
-			.map((line) => line.slice(5).trimStart())
-			.join("\n");
-		if (data && data !== "[DONE]") {
-			try {
-				handleOpenAIEvent(
-					state,
-					JSON.parse(data) as Record<string, unknown>,
-					handlers,
-				);
-			} catch {
-				// Final hybrid parse decides whether malformed output can be used.
-			}
-		}
-		boundary = state.eventBuffer.indexOf("\n\n");
-	}
+	processOpenAIResponseSseChunk(state, chunk, {
+		delimiterPattern: DELIMITER_PATTERN,
+		onDelta: (delta) => {
+			handlers.onDelta?.(delta);
+			handlers.onEvent?.({ type: "delta", delta });
+		},
+	});
 }
 
 function createOpenAIRequestBody(
@@ -838,70 +718,41 @@ function readOpenAIStreamEffect(
 	options: SearchDiscussionOptions,
 	handlers: SearchDiscussionStreamHandlers,
 ): Effect.Effect<SearchDiscussionRunResult, Error> {
-	const reader = response.body?.getReader();
-	if (!reader) {
-		return Effect.fail(new Error("OpenAI response did not include a stream"));
-	}
-
-	const decoder = new TextDecoder();
-	const state: OpenAIStreamState = {
-		eventBuffer: "",
-		rawText: "",
-		pendingVisible: "",
-		jsonMode: false,
-	};
-
 	return Effect.gen(function* () {
-		for (;;) {
-			const { done, value } = yield* trySearchPromise(() => reader.read());
-			if (!done) {
-				processSseChunk(
-					state,
-					decoder.decode(value, { stream: true }),
-					handlers,
-				);
-				continue;
-			}
-
-			flushPendingVisible(state, handlers);
-			if (state.error) {
-				return yield* Effect.fail(new Error(state.error));
-			}
-
-			const parsed = yield* trySearchSync(() =>
-				parseDiscussionFromHybridText(context, state.rawText),
-			);
-			const updatedAt = yield* trySearchSync(() =>
-				writeSyncCache(cacheKey(context, options), {
-					discussion: parsed.discussion,
-					markdown: parsed.markdown,
-					model: modelFromOptions(options),
-					reasoningEffort: reasoningEffortFromOptions(options),
-					serviceTier: serviceTierFromOptions(options),
-					usage: state.usage,
-					responseId: state.responseId,
-				}),
-			);
-			const result = {
-				context,
+		const stream = yield* readOpenAIResponseStreamEffect(response, {
+			delimiterPattern: DELIMITER_PATTERN,
+			onDelta: (delta) => {
+				handlers.onDelta?.(delta);
+				handlers.onEvent?.({ type: "delta", delta });
+			},
+		});
+		const parsed = yield* trySearchSync(() =>
+			parseDiscussionFromHybridText(context, stream.rawText),
+		);
+		const updatedAt = yield* trySearchSync(() =>
+			writeSyncCache(cacheKey(context, options), {
 				discussion: parsed.discussion,
 				markdown: parsed.markdown,
 				model: modelFromOptions(options),
 				reasoningEffort: reasoningEffortFromOptions(options),
 				serviceTier: serviceTierFromOptions(options),
-				cached: false,
-				updatedAt,
-			};
-			handlers.onEvent?.({ type: "done", result });
-			return result;
-		}
-	}).pipe(
-		Effect.ensuring(
-			Effect.sync(() => {
-				reader.releaseLock();
+				usage: stream.usage,
+				responseId: stream.responseId,
 			}),
-		),
-	);
+		);
+		const result = {
+			context,
+			discussion: parsed.discussion,
+			markdown: parsed.markdown,
+			model: modelFromOptions(options),
+			reasoningEffort: reasoningEffortFromOptions(options),
+			serviceTier: serviceTierFromOptions(options),
+			cached: false,
+			updatedAt,
+		};
+		handlers.onEvent?.({ type: "done", result });
+		return result;
+	});
 }
 
 export function streamSearchDiscussionEffect(
@@ -970,34 +821,11 @@ export function streamSearchDiscussionEffect(
 			return result;
 		}
 
-		const apiKey = process.env.OPENAI_API_KEY;
-		if (!apiKey) {
-			return yield* Effect.fail(new Error("OPENAI_API_KEY is not set"));
-		}
-
 		handlers.onEvent?.({ type: "start", context, cached: false });
-		const response = yield* trySearchPromise(() =>
-			fetch("https://api.openai.com/v1/responses", {
-				method: "POST",
-				signal: options.signal,
-				headers: {
-					authorization: `Bearer ${apiKey}`,
-					"content-type": "application/json",
-				},
-				body: JSON.stringify(createOpenAIRequestBody(context, options)),
-			}),
-		);
-		if (!response.ok) {
-			const text = yield* trySearchPromise(() => response.text());
-			return yield* Effect.fail(
-				new Error(
-					`OpenAI request failed: ${String(response.status)} ${text.slice(
-						0,
-						400,
-					)}`,
-				),
-			);
-		}
+		const response = yield* requestOpenAIResponseEffect({
+			body: createOpenAIRequestBody(context, options),
+			signal: options.signal,
+		});
 		return yield* readOpenAIStreamEffect(response, context, options, handlers);
 	});
 }

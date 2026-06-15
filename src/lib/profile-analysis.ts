@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getNativeDb } from "./db";
 import { runEffectPromise, tryPromise } from "./effect-runtime";
 import { buildMediaJsonFromIncludes, countTweetMedia } from "./media-includes";
+import { requestOpenAIResponseEffect } from "./openai-response-runtime";
 import type { Database } from "./sqlite";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
 import { tweetEntitiesFromXurl } from "./tweet-render";
@@ -1192,34 +1193,12 @@ export function streamProfileAnalysisEffect(
 			return result;
 		}
 
-		const apiKey = process.env.OPENAI_API_KEY;
-		if (!apiKey) {
-			return yield* Effect.fail(new Error("OPENAI_API_KEY is not set"));
-		}
 		handlers.onEvent?.({ type: "start", context, cached: false });
 		emitStatus(handlers, "Summarizing with AI", modelFromOptions(options));
-		const response = yield* tryProfilePromise(() =>
-			fetch("https://api.openai.com/v1/responses", {
-				method: "POST",
-				signal: options.signal,
-				headers: {
-					authorization: `Bearer ${apiKey}`,
-					"content-type": "application/json",
-				},
-				body: JSON.stringify(createOpenAIRequestBody(context, options)),
-			}),
-		);
-		if (!response.ok) {
-			const text = yield* tryProfilePromise(() => response.text());
-			return yield* Effect.fail(
-				new Error(
-					`OpenAI request failed: ${String(response.status)} ${text.slice(
-						0,
-						400,
-					)}`,
-				),
-			);
-		}
+		const response = yield* requestOpenAIResponseEffect({
+			body: createOpenAIRequestBody(context, options),
+			signal: options.signal,
+		});
 		const payload = (yield* tryProfilePromise(() => response.json())) as Record<
 			string,
 			unknown
