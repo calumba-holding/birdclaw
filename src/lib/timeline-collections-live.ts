@@ -4,18 +4,17 @@ import {
 	listBookmarkedTweetsViaBirdEffect,
 	listLikedTweetsViaBirdEffect,
 } from "./bird";
+import { databaseWriteEffect } from "./database-writer";
 import { getNativeDb } from "./db";
 import { runEffectPromise, tryPromise } from "./effect-runtime";
-import { buildMediaJsonFromIncludes, countTweetMedia } from "./media-includes";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
-import { tweetEntitiesFromXurl } from "./tweet-render";
 import type {
 	XurlMentionData,
 	XurlMentionsResponse,
 	XurlMediaItem,
 	XurlMentionUser,
 } from "./types";
-import { ensureStubProfileForXUser, upsertProfileFromXUser } from "./x-profile";
+import { ingestTweetPayload } from "./tweet-repository";
 import {
 	listBookmarkedTweetsViaXurl,
 	listLikedTweetsViaXurl,
@@ -116,20 +115,6 @@ function resolveAccount(db: Database, accountId?: string) {
 				? row.external_user_id
 				: undefined,
 	};
-}
-
-function replaceTweetFts(db: Database, tweetId: string, text: string) {
-	db.prepare("delete from tweets_fts where tweet_id = ?").run(tweetId);
-	db.prepare("insert into tweets_fts (tweet_id, text) values (?, ?)").run(
-		tweetId,
-		text,
-	);
-}
-
-function getReferencedTweetId(tweet: XurlMentionData, type: string) {
-	return (
-		tweet.referenced_tweets?.find((item) => item.type === type)?.id ?? null
-	);
 }
 
 function mergePayloads(pages: XurlMentionsResponse[]): XurlMentionsResponse {
@@ -237,95 +222,16 @@ function mergeTimelineCollectionIntoLocalStore(
 	payload: XurlMentionsResponse,
 	source: "xurl" | "bird",
 ) {
-	const usersById = new Map(
-		(payload.includes?.users ?? []).map((user) => [user.id, user]),
-	);
 	const tweetKind = kind === "likes" ? "like" : "bookmark";
-	const liked = kind === "likes" ? 1 : 0;
-	const bookmarked = kind === "bookmarks" ? 1 : 0;
-	const upsertTweet = db.prepare(
-		`
-    insert into tweets (
-      id, account_id, author_profile_id, kind, text, created_at,
-      is_replied, reply_to_id, like_count, media_count, bookmarked, liked,
-      entities_json, media_json, quoted_tweet_id
-    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    on conflict(id) do update set
-      account_id = tweets.account_id,
-      author_profile_id = excluded.author_profile_id,
-      kind = case
-        when tweets.kind in ('authored', 'home', 'mention') then tweets.kind
-        else excluded.kind
-      end,
-      text = excluded.text,
-      created_at = excluded.created_at,
-      like_count = excluded.like_count,
-      media_count = max(tweets.media_count, excluded.media_count),
-      entities_json = excluded.entities_json,
-      media_json = case
-        when excluded.media_json not in ('', '[]', 'null') then excluded.media_json
-        else tweets.media_json
-      end,
-      is_replied = max(tweets.is_replied, excluded.is_replied),
-      reply_to_id = coalesce(excluded.reply_to_id, tweets.reply_to_id),
-      quoted_tweet_id = coalesce(excluded.quoted_tweet_id, tweets.quoted_tweet_id),
-      bookmarked = tweets.bookmarked,
-      liked = tweets.liked
-    `,
-	);
-	const upsertCollection = db.prepare(`
-    insert into tweet_collections (
-      account_id, tweet_id, kind, collected_at, source, raw_json, updated_at
-    ) values (?, ?, ?, null, ?, ?, ?)
-    on conflict(account_id, tweet_id, kind) do update set
-      source = excluded.source,
-      raw_json = excluded.raw_json,
-      updated_at = excluded.updated_at
-  `);
-
-	db.transaction(() => {
-		const updatedAt = new Date().toISOString();
-		for (const tweet of payload.data) {
-			const author =
-				usersById.get(tweet.author_id) ??
-				({
-					id: tweet.author_id,
-					username: `user_${tweet.author_id}`,
-					name: `user_${tweet.author_id}`,
-				} as const);
-			const profile = usersById.has(tweet.author_id)
-				? upsertProfileFromXUser(db, author)
-				: ensureStubProfileForXUser(db, tweet.author_id);
-			const replyToId = getReferencedTweetId(tweet, "replied_to");
-			const quotedTweetId = getReferencedTweetId(tweet, "quoted");
-			upsertTweet.run(
-				tweet.id,
-				accountId,
-				profile.profile.id,
-				tweetKind,
-				tweet.text,
-				tweet.created_at,
-				replyToId ? 1 : 0,
-				replyToId,
-				Number(tweet.public_metrics?.like_count ?? 0),
-				countTweetMedia(tweet),
-				bookmarked,
-				liked,
-				JSON.stringify(tweetEntitiesFromXurl(tweet.entities)),
-				buildMediaJsonFromIncludes(tweet, payload.includes?.media),
-				quotedTweetId,
-			);
-			upsertCollection.run(
-				accountId,
-				tweet.id,
-				kind,
-				source,
-				JSON.stringify(tweet),
-				updatedAt,
-			);
-			replaceTweetFts(db, tweet.id, tweet.text);
-		}
-	})();
+	ingestTweetPayload(db, {
+		accountId,
+		payload,
+		kind: tweetKind,
+		collectionKind: kind,
+		markRepliesAsReplied: true,
+		replaceSecondaryKind: true,
+		source,
+	});
 }
 
 function fetchXurlCollectionEffect({
@@ -550,16 +456,16 @@ export function syncTimelineCollectionEffect({
 			}
 		}
 
-		yield* trySync(() =>
+		yield* databaseWriteEffect((writeDb) => {
 			mergeTimelineCollectionIntoLocalStore(
-				db,
+				writeDb,
 				resolvedAccount.accountId,
 				kind,
 				payload,
 				source,
-			),
-		);
-		yield* trySync(() => writeSyncCache(cacheKey, payload, db));
+			);
+			writeSyncCache(cacheKey, payload, writeDb);
+		});
 		const saturatedAtPage = readSaturatedAtPage(payload);
 
 		return {

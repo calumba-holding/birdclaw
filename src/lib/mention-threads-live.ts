@@ -1,10 +1,9 @@
 import type { Database } from "./sqlite";
 import { Effect } from "effect";
 import { listThreadViaBirdEffect } from "./bird";
+import { databaseWriteEffect } from "./database-writer";
 import { getNativeDb } from "./db";
 import { runEffectPromise } from "./effect-runtime";
-import { buildMediaJsonFromIncludes, countTweetMedia } from "./media-includes";
-import { tweetEntitiesFromXurl } from "./tweet-render";
 import type {
 	XurlMentionData,
 	XurlMentionsResponse,
@@ -12,8 +11,7 @@ import type {
 	XurlMediaItem,
 	XurlTweetsResponse,
 } from "./types";
-import { upsertTweetAccountEdge } from "./tweet-account-edges";
-import { ensureStubProfileForXUser, upsertProfileFromXUser } from "./x-profile";
+import { ingestTweetPayload } from "./tweet-repository";
 import { getTweetByIdEffect, searchRecentByConversationIdEffect } from "./xurl";
 
 const DEFAULT_LIMIT = 30;
@@ -107,14 +105,6 @@ function getRemainingThreadTimeoutMs(
 	}
 	return remainingMs;
 }
-function replaceTweetFts(db: Database, tweetId: string, text: string) {
-	db.prepare("delete from tweets_fts where tweet_id = ?").run(tweetId);
-	db.prepare("insert into tweets_fts (tweet_id, text) values (?, ?)").run(
-		tweetId,
-		text,
-	);
-}
-
 function resolveAccount(db: Database, accountId?: string) {
 	const row = accountId
 		? (db
@@ -354,84 +344,32 @@ function mergeMentionThreadIntoLocalStore({
 	const usersById = new Map(
 		(payload.includes?.users ?? []).map((user) => [user.id, user]),
 	);
-	const upsertTweet = db.prepare(
-		`
-    insert into tweets (
-      id, account_id, author_profile_id, kind, text, created_at,
-      is_replied, reply_to_id, like_count, media_count, bookmarked, liked,
-      entities_json, media_json, quoted_tweet_id
-    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, null)
-    on conflict(id) do update set
-      account_id = excluded.account_id,
-      author_profile_id = excluded.author_profile_id,
-      kind = case
-        when tweets.kind in ('authored', 'home', 'mention') then tweets.kind
-        when excluded.kind in ('authored', 'home', 'mention') then excluded.kind
-        else coalesce(nullif(tweets.kind, ''), excluded.kind)
-      end,
-      text = excluded.text,
-      created_at = excluded.created_at,
-      is_replied = max(tweets.is_replied, excluded.is_replied),
-      reply_to_id = coalesce(excluded.reply_to_id, tweets.reply_to_id),
-      like_count = excluded.like_count,
-      media_count = max(tweets.media_count, excluded.media_count),
-      entities_json = excluded.entities_json,
-      media_json = case
-        when excluded.media_json not in ('', '[]', 'null') then excluded.media_json
-        else tweets.media_json
-      end,
-      bookmarked = tweets.bookmarked,
-      liked = tweets.liked
-    `,
-	);
-
-	db.transaction(() => {
-		const seenAt = new Date().toISOString();
-		for (const tweet of payload.data) {
-			const author =
-				usersById.get(tweet.author_id) ??
-				({
-					id: tweet.author_id,
-					username: `user_${tweet.author_id}`,
-					name: `user_${tweet.author_id}`,
-				} as const);
-			const profile = usersById.has(tweet.author_id)
-				? upsertProfileFromXUser(db, author)
-				: ensureStubProfileForXUser(db, tweet.author_id);
-			const handle = author.username.toLowerCase();
-			const kind = mentionIds.has(tweet.id)
-				? "mention"
-				: handle === accountHandle
-					? "home"
-					: "thread";
-			const replyToId = getReplyToId(tweet);
-			upsertTweet.run(
-				tweet.id,
-				accountId,
-				profile.profile.id,
-				kind,
-				tweet.text,
-				tweet.created_at,
-				replyToId ? 1 : 0,
-				replyToId ?? null,
-				Number(tweet.public_metrics?.like_count ?? 0),
-				countTweetMedia(tweet),
-				JSON.stringify(tweetEntitiesFromXurl(tweet.entities)),
-				buildMediaJsonFromIncludes(tweet, payload.includes?.media),
-			);
-			if (writeThreadContextEdges) {
-				upsertTweetAccountEdge(db, {
-					accountId,
-					tweetId: tweet.id,
-					kind: "thread_context",
-					source,
-					seenAt,
-					rawJson: JSON.stringify(tweet),
-				});
-			}
-			replaceTweetFts(db, tweet.id, tweet.text);
-		}
-	})();
+	const groups = new Map<"mention" | "home" | "thread", typeof payload.data>([
+		["mention", []],
+		["home", []],
+		["thread", []],
+	]);
+	for (const tweet of payload.data) {
+		const handle = usersById.get(tweet.author_id)?.username.toLowerCase();
+		const kind = mentionIds.has(tweet.id)
+			? "mention"
+			: handle === accountHandle
+				? "home"
+				: "thread";
+		groups.get(kind)?.push(tweet);
+	}
+	for (const [kind, data] of groups) {
+		if (data.length === 0) continue;
+		ingestTweetPayload(db, {
+			accountId,
+			payload: { ...payload, data },
+			kind,
+			edgeKind: writeThreadContextEdges ? "thread_context" : undefined,
+			markRepliesAsReplied: true,
+			replaceSecondaryKind: true,
+			source,
+		});
+	}
 }
 
 function fetchConversationViaRecentSearchEffect({
@@ -804,9 +742,9 @@ export function syncMentionThreadsEffect({
 						});
 			const fetched = yield* fetchEffect.pipe(
 				Effect.flatMap((fetchResult) =>
-					trySync(() =>
+					databaseWriteEffect((writeDb) =>
 						mergeMentionThreadIntoLocalStore({
-							db,
+							db: writeDb,
 							accountId: resolvedAccount.accountId,
 							accountHandle: resolvedAccount.handle,
 							mentionIds: mentionIdSet,

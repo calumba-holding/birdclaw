@@ -1,18 +1,16 @@
 import { Effect } from "effect";
 import type { Database } from "./sqlite";
 import { listHomeTimelineViaBirdEffect } from "./bird";
+import { databaseWriteEffect } from "./database-writer";
 import { getNativeDb } from "./db";
 import { runEffectPromise } from "./effect-runtime";
-import { buildMediaJsonFromIncludes, countTweetMedia } from "./media-includes";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
-import { tweetEntitiesFromXurl } from "./tweet-render";
 import type {
 	XurlMediaItem,
 	XurlMentionUser,
 	XurlMentionsResponse,
 } from "./types";
-import { upsertTweetAccountEdge } from "./tweet-account-edges";
-import { ensureStubProfileForXUser, upsertProfileFromXUser } from "./x-profile";
+import { ingestTweetPayload } from "./tweet-repository";
 import { listHomeTimelineViaXurlEffect } from "./xurl";
 
 const DEFAULT_TIMELINE_CACHE_TTL_MS = 2 * 60_000;
@@ -88,14 +86,6 @@ function reachedStartTimeBoundary(
 		const createdAt = new Date(tweet.created_at).getTime();
 		return Number.isFinite(createdAt) && createdAt <= startTimeMs;
 	});
-}
-
-function getReferencedTweetId(
-	tweet: XurlMentionsResponse["data"][number],
-	type: "replied_to" | "quoted",
-) {
-	return tweet.referenced_tweets?.find((reference) => reference.type === type)
-		?.id;
 }
 
 function mergeTimelinePayloads(
@@ -175,91 +165,19 @@ function resolveAccount(db: Database, accountId?: string) {
 	};
 }
 
-function replaceTweetFts(db: Database, tweetId: string, text: string) {
-	db.prepare("delete from tweets_fts where tweet_id = ?").run(tweetId);
-	db.prepare("insert into tweets_fts (tweet_id, text) values (?, ?)").run(
-		tweetId,
-		text,
-	);
-}
-
 function mergeHomeTimelineIntoLocalStore(
 	db: Database,
 	accountId: string,
 	payload: XurlMentionsResponse,
 	source: "bird" | "xurl",
 ) {
-	const usersById = new Map(
-		(payload.includes?.users ?? []).map((user) => [user.id, user]),
-	);
-	const upsertTweet = db.prepare(
-		`
-    insert into tweets (
-      id, account_id, author_profile_id, kind, text, created_at,
-      is_replied, reply_to_id, like_count, media_count, bookmarked, liked,
-      entities_json, media_json, quoted_tweet_id
-    ) values (?, ?, ?, 'home', ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
-    on conflict(id) do update set
-      account_id = tweets.account_id,
-      author_profile_id = excluded.author_profile_id,
-      kind = tweets.kind,
-      text = excluded.text,
-      created_at = excluded.created_at,
-      is_replied = max(tweets.is_replied, excluded.is_replied),
-      reply_to_id = coalesce(tweets.reply_to_id, excluded.reply_to_id),
-      like_count = excluded.like_count,
-      media_count = max(tweets.media_count, excluded.media_count),
-      entities_json = excluded.entities_json,
-      media_json = case
-        when excluded.media_json not in ('', '[]', 'null') then excluded.media_json
-        else tweets.media_json
-      end,
-      bookmarked = tweets.bookmarked,
-      liked = tweets.liked,
-      quoted_tweet_id = coalesce(tweets.quoted_tweet_id, excluded.quoted_tweet_id)
-    `,
-	);
-
-	db.transaction(() => {
-		const seenAt = new Date().toISOString();
-		for (const tweet of payload.data) {
-			const author =
-				usersById.get(tweet.author_id) ??
-				({
-					id: tweet.author_id,
-					username: `user_${tweet.author_id}`,
-					name: `user_${tweet.author_id}`,
-				} as const);
-			const profile = usersById.has(tweet.author_id)
-				? upsertProfileFromXUser(db, author)
-				: ensureStubProfileForXUser(db, tweet.author_id);
-			const replyToId = getReferencedTweetId(tweet, "replied_to") ?? null;
-			const quotedTweetId = getReferencedTweetId(tweet, "quoted") ?? null;
-			upsertTweet.run(
-				tweet.id,
-				accountId,
-				profile.profile.id,
-				tweet.text,
-				tweet.created_at,
-				0,
-				replyToId,
-				Number(tweet.public_metrics?.like_count ?? 0),
-				countTweetMedia(tweet),
-				JSON.stringify(tweetEntitiesFromXurl(tweet.entities)),
-				buildMediaJsonFromIncludes(tweet, payload.includes?.media),
-				quotedTweetId,
-			);
-			upsertTweetAccountEdge(db, {
-				accountId,
-				tweetId: tweet.id,
-				kind: "home",
-				source,
-				seenAt,
-				rawJson: JSON.stringify(tweet),
-			});
-			replaceTweetFts(db, tweet.id, tweet.text);
-		}
-	})();
+	ingestTweetPayload(db, {
+		accountId,
+		payload,
+		kind: "home",
+		edgeKind: "home",
+		source,
+	});
 }
 
 export function syncHomeTimelineEffect({
@@ -432,8 +350,10 @@ export function syncHomeTimelineEffect({
 				}),
 			);
 		}
-		mergeHomeTimelineIntoLocalStore(db, accountId, payload, source);
-		writeSyncCache(cacheKey, payload, db);
+		yield* databaseWriteEffect((writeDb) => {
+			mergeHomeTimelineIntoLocalStore(writeDb, accountId, payload, source);
+			writeSyncCache(cacheKey, payload, writeDb);
+		});
 
 		return {
 			ok: true,

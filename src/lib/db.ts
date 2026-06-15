@@ -4,6 +4,10 @@ import NativeSqliteDatabase, {
 } from "./sqlite";
 import { Kysely, SqliteDialect } from "kysely";
 import { ensureBirdclawDirs, getBirdclawPaths } from "./config";
+import {
+	type DatabaseMigration,
+	runDatabaseMigrations,
+} from "./database-migrations";
 import { seedDemoData } from "./seed";
 
 export interface AccountsTable {
@@ -1047,6 +1051,31 @@ function ensureSchemaIndexes(db: Database) {
 	db.exec(INDEX_SQL);
 }
 
+const DATABASE_MIGRATIONS: readonly DatabaseMigration[] = [
+	{
+		version: 1,
+		name: "canonical schema baseline",
+		up: (db) => {
+			db.exec(BASE_SCHEMA_SQL);
+			ensureAccountExternalUserIdColumn(db);
+			ensureDmConversationInboxColumns(db);
+			ensureTweetMetadataColumns(db);
+			ensureProfileAvatarColumns(db);
+			ensureTweetCollectionsTable(db);
+			ensureTweetAccountEdgesTable(db);
+			ensureProfileAffiliationsTable(db);
+			ensureProfileSnapshotsTable(db);
+			ensureProfileBioEntitiesTable(db);
+			ensureIdentitySearchIndexTable(db);
+			ensureLinkIndexTables(db);
+			ensureFollowGraphTables(db);
+			ensureSchemaIndexes(db);
+			backfillTweetCollections(db);
+			backfillTweetAccountEdges(db);
+		},
+	},
+];
+
 function ensureDemoData(db: Database) {
 	if (demoSeedAttempted) {
 		return;
@@ -1064,25 +1093,13 @@ function initDatabase(options: InitDatabaseOptions = {}) {
 	if (!nativeDb) {
 		const { dbPath } = getBirdclawPaths();
 		nativeDb = new NativeSqliteDatabase(dbPath);
-		nativeDb.exec(BASE_SCHEMA_SQL);
-		ensureAccountExternalUserIdColumn(nativeDb);
-		ensureDmConversationInboxColumns(nativeDb);
-		ensureTweetMetadataColumns(nativeDb);
-		ensureProfileAvatarColumns(nativeDb);
-		ensureTweetCollectionsTable(nativeDb);
-		ensureTweetAccountEdgesTable(nativeDb);
-		ensureProfileAffiliationsTable(nativeDb);
-		ensureProfileSnapshotsTable(nativeDb);
-		ensureProfileBioEntitiesTable(nativeDb);
-		ensureIdentitySearchIndexTable(nativeDb);
-		ensureLinkIndexTables(nativeDb);
-		ensureFollowGraphTables(nativeDb);
-		ensureSchemaIndexes(nativeDb);
+		nativeDb.exec(`
+		  pragma busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS};
+		  pragma foreign_keys = on;
+		`);
+		runDatabaseMigrations(nativeDb, DATABASE_MIGRATIONS);
 		if (options.seedDemoData !== false) {
 			ensureDemoData(nativeDb);
-		} else {
-			backfillTweetCollections(nativeDb);
-			backfillTweetAccountEdges(nativeDb);
 		}
 	} else if (options.seedDemoData !== false) {
 		ensureDemoData(nativeDb);

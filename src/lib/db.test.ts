@@ -296,6 +296,8 @@ describe("database init", () => {
 			simple: true,
 		}) as number;
 		expect(busyTimeout).toBe(SQLITE_BUSY_TIMEOUT_MS);
+		expect(db.pragma("foreign_keys", { simple: true })).toBe(1);
+		expect(db.pragma("user_version", { simple: true })).toBe(1);
 	});
 
 	it("does not request a write lock for completed startup backfills", async () => {
@@ -312,8 +314,12 @@ describe("database init", () => {
 
 		const startedAt = Date.now();
 		try {
-			getNativeDb({ seedDemoData: false });
+			const reopened = getNativeDb({ seedDemoData: false });
 			expect(Date.now() - startedAt).toBeLessThan(900);
+			expect(reopened.pragma("foreign_keys", { simple: true })).toBe(1);
+			expect(reopened.pragma("busy_timeout", { simple: true })).toBe(
+				SQLITE_BUSY_TIMEOUT_MS,
+			);
 		} finally {
 			await stopChild(holder);
 		}

@@ -1,5 +1,6 @@
 import type { Database } from "./sqlite";
 import { Effect } from "effect";
+import { databaseWriteEffect } from "./database-writer";
 import { getNativeDb } from "./db";
 import { runEffectPromise, tryPromise } from "./effect-runtime";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
@@ -977,9 +978,9 @@ export function syncAuthoredTweetsEffect({
 				userId: identity.userId,
 				nextToken: page.nextToken,
 			});
-			yield* trySync(() =>
+			yield* databaseWriteEffect((writeDb) =>
 				mergeAuthoredPayloadIntoLocalStore({
-					db,
+					db: writeDb,
 					accountId: identity.accountId,
 					payload: pagePayload,
 					sourceUser,

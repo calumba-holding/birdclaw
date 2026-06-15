@@ -1,14 +1,12 @@
 import { Effect } from "effect";
 import { searchTweetsViaBirdEffect } from "./bird";
 import type { Database } from "./sqlite";
+import { databaseWriteEffect } from "./database-writer";
 import { getNativeDb } from "./db";
 import { runEffectPromise } from "./effect-runtime";
-import { buildMediaJsonFromIncludes, countTweetMedia } from "./media-includes";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
-import { tweetEntitiesFromXurl } from "./tweet-render";
 import type { XurlMentionsResponse, XurlTweetsResponse } from "./types";
-import { upsertTweetAccountEdge } from "./tweet-account-edges";
-import { ensureStubProfileForXUser, upsertProfileFromXUser } from "./x-profile";
+import { ingestTweetPayload } from "./tweet-repository";
 import { searchRecentTweetsEffect } from "./xurl";
 
 export type TweetSearchMode = "auto" | "bird" | "xurl" | "local";
@@ -118,97 +116,19 @@ function resolveAccount(db: Database, accountId?: string) {
 	};
 }
 
-function replaceTweetFts(db: Database, tweetId: string, text: string) {
-	db.prepare("delete from tweets_fts where tweet_id = ?").run(tweetId);
-	db.prepare("insert into tweets_fts (tweet_id, text) values (?, ?)").run(
-		tweetId,
-		text,
-	);
-}
-
 function mergeTweetSearchIntoLocalStore(
 	db: Database,
 	accountId: string,
 	payload: XurlMentionsResponse,
 	source: "bird" | "xurl" | "cache",
 ) {
-	const usersById = new Map(
-		(payload.includes?.users ?? []).map((user) => [user.id, user]),
-	);
-	const upsertTweet = db.prepare(
-		`
-    insert into tweets (
-      id, account_id, author_profile_id, kind, text, created_at,
-      is_replied, reply_to_id, like_count, media_count, bookmarked, liked,
-      entities_json, media_json, quoted_tweet_id
-    ) values (?, ?, ?, 'search', ?, ?, 0, ?, ?, ?, 0, 0, ?, ?, ?)
-    on conflict(id) do update set
-      account_id = tweets.account_id,
-      author_profile_id = excluded.author_profile_id,
-      kind = tweets.kind,
-      text = excluded.text,
-      created_at = excluded.created_at,
-      reply_to_id = coalesce(tweets.reply_to_id, excluded.reply_to_id),
-      like_count = excluded.like_count,
-      media_count = max(tweets.media_count, excluded.media_count),
-      entities_json = excluded.entities_json,
-      media_json = case
-        when excluded.media_json not in ('', '[]', 'null') then excluded.media_json
-        else tweets.media_json
-      end,
-      quoted_tweet_id = coalesce(tweets.quoted_tweet_id, excluded.quoted_tweet_id),
-      bookmarked = tweets.bookmarked,
-      liked = tweets.liked
-    `,
-	);
-	const tweetIds: string[] = [];
-
-	db.transaction(() => {
-		const seenAt = new Date().toISOString();
-		for (const tweet of payload.data) {
-			const author =
-				usersById.get(tweet.author_id) ??
-				({
-					id: tweet.author_id,
-					username: `user_${tweet.author_id}`,
-					name: `user_${tweet.author_id}`,
-				} as const);
-			const profile = usersById.has(tweet.author_id)
-				? upsertProfileFromXUser(db, author)
-				: ensureStubProfileForXUser(db, tweet.author_id);
-			const replyToId =
-				tweet.referenced_tweets?.find((item) => item.type === "replied_to")
-					?.id ?? null;
-			const quotedTweetId =
-				tweet.referenced_tweets?.find((item) => item.type === "quoted")?.id ??
-				null;
-			upsertTweet.run(
-				tweet.id,
-				accountId,
-				profile.profile.id,
-				tweet.text,
-				tweet.created_at,
-				replyToId,
-				Number(tweet.public_metrics?.like_count ?? 0),
-				countTweetMedia(tweet),
-				JSON.stringify(tweetEntitiesFromXurl(tweet.entities)),
-				buildMediaJsonFromIncludes(tweet, payload.includes?.media),
-				quotedTweetId,
-			);
-			upsertTweetAccountEdge(db, {
-				accountId,
-				tweetId: tweet.id,
-				kind: "search",
-				source,
-				seenAt,
-				rawJson: JSON.stringify(tweet),
-			});
-			replaceTweetFts(db, tweet.id, tweet.text);
-			tweetIds.push(tweet.id);
-		}
-	})();
-
-	return tweetIds;
+	return ingestTweetPayload(db, {
+		accountId,
+		payload,
+		kind: "search",
+		edgeKind: "search",
+		source,
+	});
 }
 
 function toMentionsResponse(payload: XurlTweetsResponse): XurlMentionsResponse {
@@ -384,19 +304,19 @@ function runModeEffect(
 					).pipe(
 						Effect.map((response) => limitResponse(response, options.limit)),
 					);
-		if (!cached || options.refresh || ageMs > options.cacheTtlMs) {
-			yield* trySync(() => writeSyncCache(key, payload, db));
-		}
-		const tweetIds = yield* trySync(() =>
-			mergeTweetSearchIntoLocalStore(
-				db,
+		const tweetIds = yield* databaseWriteEffect((writeDb) => {
+			if (!cached || options.refresh || ageMs > options.cacheTtlMs) {
+				writeSyncCache(key, payload, writeDb);
+			}
+			return mergeTweetSearchIntoLocalStore(
+				writeDb,
 				options.accountId,
 				payload,
 				!options.refresh && cached && ageMs <= options.cacheTtlMs
 					? "cache"
 					: mode,
-			),
-		);
+			);
+		});
 
 		return {
 			ok: true,
