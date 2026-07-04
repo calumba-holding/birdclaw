@@ -15,12 +15,20 @@ const mocks = vi.hoisted(() => ({
 	lookupAuthenticatedUser: vi.fn(),
 }));
 
-vi.mock("./xurl", () => ({
-	getTransportStatus: (...args: unknown[]) => mocks.getTransportStatus(...args),
-	listUserTweets: (...args: unknown[]) => mocks.listUserTweets(...args),
-	lookupAuthenticatedUser: (...args: unknown[]) =>
-		mocks.lookupAuthenticatedUser(...args),
-}));
+vi.mock("./xurl", () => {
+	const fromMock =
+		(mock: (...args: unknown[]) => unknown) =>
+		(...args: unknown[]) =>
+			Effect.tryPromise({
+				try: () => Promise.resolve(mock(...args)),
+				catch: (error) => error,
+			});
+	return {
+		getTransportStatusEffect: fromMock(mocks.getTransportStatus),
+		listUserTweetsEffect: fromMock(mocks.listUserTweets),
+		lookupAuthenticatedUserEffect: fromMock(mocks.lookupAuthenticatedUser),
+	};
+});
 
 const tempDirs: string[] = [];
 
