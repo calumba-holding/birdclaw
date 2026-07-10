@@ -4,7 +4,7 @@
 
 ### Added
 
-- Add a disabled-by-default, bearer-authenticated read-only MCP endpoint for cached tweet search and thread research, with strict Host/Origin checks, bounded stateless requests, and no DM, live X, OpenAI, filesystem, or write tools.
+- Add a disabled-by-default, bearer-authenticated read-only MCP endpoint for account-scoped cached tweet search and thread research, with startup configuration/schema validation, strict loopback/Host/Origin/path isolation, bounded stateless requests, and no DM, live X, OpenAI, filesystem, or write tools.
 
 ## 0.9.5 - 2026-07-06
 

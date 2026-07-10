@@ -1,8 +1,8 @@
-import type { Database } from "./sqlite";
 import { getReadDb } from "./db";
 import { profileFromDbRow, profileHandleKey } from "./profile-row";
-import { displayUrlForLink, enrichFallbackUrlEntities } from "./tweet-render";
 import { parseJsonField, toFtsSearchQuery } from "./query-read-model-shared";
+import type { Database } from "./sqlite";
+import { displayUrlForLink, enrichFallbackUrlEntities } from "./tweet-render";
 import type {
 	EmbeddedTweet,
 	ProfileRecord,
@@ -16,8 +16,7 @@ import type {
 	TweetUrlEntity,
 } from "./types";
 
-export type { TimelineItem, TimelineQuery } from "./types";
-export type { TweetConversation } from "./types";
+export type { TimelineItem, TimelineQuery, TweetConversation } from "./types";
 
 function avatarHueForHandle(handle: string) {
 	let hash = 0;
@@ -496,6 +495,25 @@ export interface TimelineItemsQueryPlan {
 	ftsSearch: string;
 }
 
+export interface TimelineReadExecutionOptions {
+	ftsMatchCountHint?: number;
+	// Unlike TimelineQuery.account, this is always a literal database account ID.
+	// It exists for security boundaries such as MCP that must never honor the
+	// UI's historical `all` sentinel.
+	literalAccountId?: string;
+	// Bound source membership rows before any non-FTS literal account query.
+	literalAccountCandidateLimit?: number;
+}
+
+export class TimelineCandidateLimitError extends Error {
+	constructor(limit: number) {
+		super(
+			`The selected account has more than ${String(limit)} cached candidates for this listing; add a search term to narrow the request.`,
+		);
+		this.name = "TimelineCandidateLimitError";
+	}
+}
+
 // Above this many FTS matches, iterating the match set (with the per-row
 // dedupe subquery) costs more than walking the created_at index newest-first
 // and probing the match set until the limit fills.
@@ -522,13 +540,17 @@ export function buildTimelineItemsQuery(
 		limit = 18,
 	}: TimelineQuery,
 	ftsMatchCountHint = 0,
+	literalAccountId?: string,
 ): TimelineItemsQueryPlan {
 	const kind = resource === "mentions" ? "mention" : resource;
 	const cteParams: Array<string | number> = [];
 	const params: Array<string | number> = [];
 	const normalizedLowQualityThreshold =
 		normalizeLowQualityThreshold(lowQualityThreshold);
-	const shouldDedupeAcrossAccounts = !account || account === "all";
+	const hasLiteralAccountId = literalAccountId !== undefined;
+	const effectiveAccountId = hasLiteralAccountId ? literalAccountId : account;
+	const shouldDedupeAcrossAccounts =
+		!hasLiteralAccountId && (!account || account === "all");
 	let timelineEdgesCte = `
 	      with timeline_edges as (
 	        select account_id, tweet_id, kind, raw_json
@@ -545,7 +567,8 @@ export function buildTimelineItemsQuery(
 		!likedOnly &&
 		!bookmarkedOnly &&
 		!listId &&
-		!account &&
+		!effectiveAccountId &&
+		!hasLiteralAccountId &&
 		!search?.trim() &&
 		replyFilter === "all" &&
 		!since?.trim() &&
@@ -557,31 +580,51 @@ export function buildTimelineItemsQuery(
 		// This CTE is also reused by the all-account dedupe subquery below. Keep
 		// both passes on tweet lookups so SQLite cannot choose a quadratic kind scan.
 		if (likedOnly && bookmarkedOnly) {
+			const likesIndex =
+				hasLiteralAccountId && !ftsSearch
+					? "idx_tweet_collections_kind_account"
+					: "idx_tweet_collections_tweet";
+			const bookmarksIndex =
+				hasLiteralAccountId && !ftsSearch
+					? ""
+					: " indexed by idx_tweet_collections_tweet";
 			timelineEdgesCte = `
         with timeline_edges as (
           select likes.account_id, likes.tweet_id, 'home' as kind, likes.raw_json
-	          from tweet_collections likes indexed by idx_tweet_collections_tweet
-	          join tweet_collections bookmarks indexed by idx_tweet_collections_tweet
+	          from tweet_collections likes indexed by ${likesIndex}
+	          join tweet_collections bookmarks${bookmarksIndex}
             on bookmarks.account_id = likes.account_id
             and bookmarks.tweet_id = likes.tweet_id
 	            and bookmarks.kind = 'bookmarks'
 	          where likes.kind = 'likes'
+			${hasLiteralAccountId ? "and likes.account_id = ?" : ""}
 	        )
 	      `;
+			if (hasLiteralAccountId) cteParams.push(effectiveAccountId ?? "");
 		} else {
 			const collectionKind = likedOnly ? "likes" : "bookmarks";
+			const collectionIndex =
+				hasLiteralAccountId && !ftsSearch
+					? "idx_tweet_collections_kind_account"
+					: "idx_tweet_collections_tweet";
 			timelineEdgesCte = `
 	        with timeline_edges as (
 	          select account_id, tweet_id, 'home' as kind, raw_json
-	          from tweet_collections indexed by idx_tweet_collections_tweet
+	          from tweet_collections indexed by ${collectionIndex}
 	          where kind = ?
+			${hasLiteralAccountId ? "and account_id = ?" : ""}
 	        )
 				`;
 			cteParams.push(collectionKind);
+			if (hasLiteralAccountId) cteParams.push(effectiveAccountId ?? "");
 		}
 		where = "where 1 = 1";
 	} else if (canUseRecentEdgeWindow) {
 		usedRecentEdgeWindow = true;
+		const candidateLimit = Math.max(
+			RECENT_TIMELINE_EDGE_CANDIDATES,
+			limit * 50,
+		);
 		timelineEdgesCte = `
       with timeline_edges as (
         select account_id, tweet_id, kind, raw_json
@@ -595,22 +638,35 @@ export function buildTimelineItemsQuery(
 	          )
 	      )
 	    `;
-		const candidateLimit = Math.max(
-			RECENT_TIMELINE_EDGE_CANDIDATES,
-			limit * 50,
-		);
 		cteParams.push(kind, candidateLimit);
 		where = "where e.kind = ?";
 		params.push(kind);
 	} else {
-		cteParams.push(kind);
+		if (hasLiteralAccountId) {
+			const edgeIndex = ftsSearch
+				? "idx_tweet_account_edges_kind_tweet"
+				: "idx_tweet_account_edges_kind_account";
+			timelineEdgesCte = `
+	  with timeline_edges as (
+		select account_id, tweet_id, kind, raw_json
+		from tweet_account_edges indexed by ${edgeIndex}
+		where kind = ? and account_id = ?
+	  )
+	`;
+			cteParams.push(kind, effectiveAccountId ?? "");
+		} else {
+			cteParams.push(kind);
+		}
 		where = "where e.kind = ?";
 		params.push(kind);
 	}
 
-	if (account && account !== "all") {
+	if (
+		hasLiteralAccountId ||
+		(effectiveAccountId && effectiveAccountId !== "all")
+	) {
 		where += " and e.account_id = ?";
-		params.push(account);
+		params.push(effectiveAccountId ?? "");
 	}
 
 	if (shouldDedupeAcrossAccounts) {
@@ -687,9 +743,9 @@ export function buildTimelineItemsQuery(
 	// are computed in a separate pass for only the returned rows.
 	const ftsMatchesCte = ftsSearch
 		? `, fts_matches as materialized (
-        select tweet_id
-        from tweets_fts
-        where tweets_fts.text match ?
+		select distinct tweet_id
+		from tweets_fts
+		where tweets_fts.text match ?
       )`
 		: "";
 	if (ftsSearch) {
@@ -818,7 +874,7 @@ export function buildTimelineItemsQuery(
 		sql: buildTimelineSelectSql(timelineEdgesCte),
 		params: [...cteParams, ...params],
 		fallbackSql: buildTimelineSelectSql(unwindowedTimelineEdgesCte),
-		fallbackParams: [kind, kind, limit],
+		fallbackParams: [kind, ...params],
 		usedRecentEdgeWindow,
 		ftsSearch,
 	};
@@ -827,9 +883,86 @@ export function buildTimelineItemsQuery(
 const SEARCH_SNIPPET_SQL =
 	"snippet(tweets_fts, 1, '<mark>', '</mark>', '...', 16)";
 
+function countBoundedLiteralAccountCandidates(
+	db: Database,
+	query: TimelineQuery,
+	accountId: string,
+	limit: number,
+) {
+	const boundedLimit = limit + 1;
+	let sql: string;
+	let params: Array<string | number>;
+	if (query.likedOnly && query.bookmarkedOnly) {
+		sql = `select max(source_count) as candidate_count from (
+			select count(*) as source_count from (
+			  select tweet_id
+			  from tweet_collections indexed by idx_tweet_collections_kind_account
+			  where kind = 'likes' and account_id = ?
+			  limit ?
+			)
+			union all
+			select count(*) as source_count from (
+			  select tweet_id
+			  from tweet_collections indexed by idx_tweet_collections_kind_account
+			  where kind = 'bookmarks' and account_id = ?
+			  limit ?
+			)
+		)`;
+		params = [accountId, boundedLimit, accountId, boundedLimit];
+	} else if (query.likedOnly || query.bookmarkedOnly) {
+		sql = `select count(*) as candidate_count from (
+			select tweet_id
+			from tweet_collections indexed by idx_tweet_collections_kind_account
+			where kind = ? and account_id = ?
+			limit ?
+		)`;
+		params = [query.likedOnly ? "likes" : "bookmarks", accountId, boundedLimit];
+	} else {
+		sql = `select count(*) as candidate_count from (
+			select tweet_id
+			from tweet_account_edges indexed by idx_tweet_account_edges_kind_account
+			where kind = ? and account_id = ?
+			limit ?
+		)`;
+		params = [
+			query.resource === "mentions" ? "mention" : query.resource,
+			accountId,
+			boundedLimit,
+		];
+	}
+	const row = db.prepare(sql).get(...params) as { candidate_count: number };
+	return Number(row.candidate_count);
+}
+
+function assertBoundedLiteralAccountQuery(
+	db: Database,
+	query: TimelineQuery,
+	options: TimelineReadExecutionOptions,
+) {
+	if (
+		options.literalAccountId === undefined ||
+		options.literalAccountCandidateLimit === undefined ||
+		query.search?.trim()
+	) {
+		return;
+	}
+	const limit = Math.max(0, Math.trunc(options.literalAccountCandidateLimit));
+	if (
+		countBoundedLiteralAccountCandidates(
+			db,
+			query,
+			options.literalAccountId,
+			limit,
+		) > limit
+	) {
+		throw new TimelineCandidateLimitError(limit);
+	}
+}
+
 export function listTimelineItems(
 	query: TimelineQuery,
 	db: Database = getReadDb(),
+	options: TimelineReadExecutionOptions = {},
 ): TimelineItem[] {
 	const {
 		includeQualityReason = false,
@@ -840,17 +973,23 @@ export function listTimelineItems(
 		normalizeLowQualityThreshold(lowQualityThreshold);
 	const ftsSearch = query.search?.trim() ? toFtsSearchQuery(query.search) : "";
 	const ftsMatchCount = ftsSearch
-		? Number(
+		? (options.ftsMatchCountHint ??
+			Number(
 				(
 					db
 						.prepare(
-							"select count(*) as match_count from tweets_fts where tweets_fts.text match ?",
+							"select count(distinct tweet_id) as match_count from tweets_fts where tweets_fts.text match ?",
 						)
 						.get(ftsSearch) as { match_count: number }
 				).match_count,
-			)
+			))
 		: 0;
-	const plan = buildTimelineItemsQuery(query, ftsMatchCount);
+	const plan = buildTimelineItemsQuery(
+		query,
+		ftsMatchCount,
+		options.literalAccountId,
+	);
+	assertBoundedLiteralAccountQuery(db, query, options);
 
 	let rows = db.prepare(plan.sql).all(...plan.params) as Array<
 		Record<string, unknown>
@@ -993,9 +1132,15 @@ export function listTimelineItems(
 	});
 }
 
-function conversationTweetSelect(accountId?: string) {
-	const collectionStateSelect = accountId
-		? `
+function conversationTweetSelect(
+	accountId?: string,
+	extraSelect = "",
+	fromClause = `from tweets t
+  join profiles p on p.id = t.author_profile_id`,
+) {
+	const collectionStateSelect =
+		accountId !== undefined
+			? `
     case
       when exists (
         select 1 from tweet_collections collection
@@ -1014,7 +1159,7 @@ function conversationTweetSelect(accountId?: string) {
       ) then 1
       else 0
     end as liked,`
-		: `
+			: `
     exists (
       select 1 from tweet_collections collection
       where collection.tweet_id = t.id and collection.kind = 'bookmarks'
@@ -1032,8 +1177,9 @@ function conversationTweetSelect(accountId?: string) {
     t.is_replied,
     t.like_count,
     t.media_count,
-    ${collectionStateSelect}
-    t.entities_json,
+	    ${collectionStateSelect}
+	${extraSelect}
+	    t.entities_json,
     t.media_json,
     p.id as profile_id,
     p.handle,
@@ -1044,9 +1190,23 @@ function conversationTweetSelect(accountId?: string) {
     p.avatar_hue,
     p.avatar_url,
     p.created_at as profile_created_at
-  from tweets t
-  join profiles p on p.id = t.author_profile_id
+	${fromClause}
 `;
+}
+
+// Tweet bodies are canonical across accounts, so scoped graph walks must prove
+// membership for every visited node rather than trusting reply relationships.
+function tweetAccountMembershipPredicate(tweetAlias: "child" | "t" | "tweet") {
+	return `(
+		exists (
+			select 1 from tweet_account_edges edge
+			where edge.account_id = ? and edge.tweet_id = ${tweetAlias}.id
+		)
+		or exists (
+			select 1 from tweet_collections collection
+			where collection.account_id = ? and collection.tweet_id = ${tweetAlias}.id
+		)
+	)`;
 }
 
 function getTweetById(
@@ -1056,10 +1216,20 @@ function getTweetById(
 	resolveProfileByHandle?: (handle: string) => ProfileRecord,
 	accountId?: string,
 ): EmbeddedTweet | null {
-	const stateParams = accountId ? [accountId, accountId] : [];
+	const stateParams = accountId !== undefined ? [accountId, accountId] : [];
+	const membershipClause =
+		accountId !== undefined
+			? ` and ${tweetAccountMembershipPredicate("t")}`
+			: "";
+	const membershipParams =
+		accountId !== undefined ? [accountId, accountId] : [];
 	const row = db
-		.prepare(`${conversationTweetSelect(accountId)} where t.id = ?`)
-		.get(...stateParams, tweetId) as Record<string, unknown> | undefined;
+		.prepare(
+			`${conversationTweetSelect(accountId)} where t.id = ?${membershipClause}`,
+		)
+		.get(...stateParams, tweetId, ...membershipParams) as
+		| Record<string, unknown>
+		| undefined;
 	if (!row) return null;
 	return buildEmbeddedTweet(
 		db,
@@ -1070,13 +1240,33 @@ function getTweetById(
 	);
 }
 
+function hasTweetAccountMembership(
+	db: Database,
+	tweetId: string,
+	accountId: string,
+) {
+	return Boolean(
+		db
+			.prepare(
+				`
+				select 1
+				from tweets tweet
+				where tweet.id = ?
+					and ${tweetAccountMembershipPredicate("tweet")}
+				limit 1
+				`,
+			)
+			.get(tweetId, accountId, accountId),
+	);
+}
+
 export function getTweetsByIds(
 	tweetIds: string[],
 	accountId?: string,
 ): EmbeddedTweet[] {
 	const db = getReadDb();
 	const scopedAccountId =
-		accountId && accountId !== "all" ? accountId : undefined;
+		accountId !== undefined && accountId !== "all" ? accountId : undefined;
 	const urlExpansionCache: UrlExpansionCache = new Map();
 	const profileByHandleCache: ProfileByHandleCache = new Map();
 	const resolveProfileByHandle = (handle: string) =>
@@ -1089,31 +1279,8 @@ export function getTweetsByIds(
 		if (!normalized || seen.has(normalized)) continue;
 		seen.add(normalized);
 		if (
-			scopedAccountId &&
-			!db
-				.prepare(
-					`
-					select 1
-					from tweets tweet
-					where tweet.id = ?
-						and (
-							exists (
-								select 1
-								from tweet_account_edges edge
-								where edge.account_id = ?
-									and edge.tweet_id = tweet.id
-							)
-							or exists (
-								select 1
-								from tweet_collections collection
-								where collection.account_id = ?
-									and collection.tweet_id = tweet.id
-							)
-						)
-					limit 1
-					`,
-				)
-				.get(normalized, scopedAccountId, scopedAccountId)
+			scopedAccountId !== undefined &&
+			!hasTweetAccountMembership(db, normalized, scopedAccountId)
 		) {
 			continue;
 		}
@@ -1136,35 +1303,104 @@ function listTweetDescendants(
 	rootId: string,
 	limit: number,
 	resolveProfileByHandle?: (handle: string) => ProfileRecord,
+	accountId?: string,
 ) {
-	if (limit <= 0) return [];
-	const candidateLimit = Math.max(128, limit * 8 + 1);
+	if (limit <= 0) {
+		const membershipClause =
+			accountId !== undefined
+				? ` and ${tweetAccountMembershipPredicate("child")}`
+				: "";
+		return {
+			items: [],
+			truncated: Boolean(
+				db
+					.prepare(
+						`select 1 from tweets child
+						 where child.reply_to_id = ? and child.id != ?${membershipClause}
+						 limit 1`,
+					)
+					.get(
+						rootId,
+						rootId,
+						...(accountId !== undefined ? [accountId, accountId] : []),
+					),
+			),
+		};
+	}
+	const maxDepth = 8;
+	const maxCandidates = Math.max(128, limit * 8);
+	const cteLimit = maxCandidates + 2;
+	const stateParams = accountId !== undefined ? [accountId, accountId] : [];
+	const scopedChildClause =
+		accountId !== undefined
+			? `and ${tweetAccountMembershipPredicate("child")}`
+			: "";
+	const scopeParams = accountId !== undefined ? [accountId, accountId] : [];
 	const rows = db
 		.prepare(
 			`
-      with recursive branch(id, depth) as (
-        select t.id, 0
+      with recursive branch(id, depth, created_at, path) as (
+        select t.id, 0, t.created_at, char(31) || t.id || char(31)
         from tweets t
         where t.id = ?
         union all
-        select child.id, branch.depth + 1
+        select
+		  child.id,
+		  branch.depth + 1,
+		  child.created_at,
+		  branch.path || child.id || char(31)
         from tweets child
         join branch on child.reply_to_id = branch.id
-        where branch.depth < 8
+		where branch.depth < ?
+		  ${scopedChildClause}
+		  and instr(branch.path, char(31) || child.id || char(31)) = 0
+		order by 3 asc, 1 asc, 2 asc
 		limit ?
+	  ),
+	  branch_stats as (
+		select
+		  (select count(*) from branch) > ? as candidate_limited,
+		  exists (
+			select 1
+			from branch cutoff
+			join tweets child on child.reply_to_id = cutoff.id
+			where cutoff.depth = ?
+			  ${scopedChildClause}
+			  and instr(
+				cutoff.path,
+				char(31) || child.id || char(31)
+			  ) = 0
+			limit 1
+		  ) as depth_limited
       )
-      ${conversationTweetSelect()}
-      join branch on branch.id = t.id
+      ${conversationTweetSelect(
+				accountId,
+				"branch_stats.candidate_limited, branch_stats.depth_limited,",
+				`from branch
+	  cross join tweets t on t.id = branch.id
+	  join profiles p on p.id = t.author_profile_id`,
+			)}
+	  cross join branch_stats
       where t.id != ?
-      order by t.created_at asc
+	  order by t.created_at asc, t.id asc
       limit ?
       `,
 		)
-		.all(rootId, candidateLimit, rootId, limit) as Array<
-		Record<string, unknown>
-	>;
+		.all(
+			rootId,
+			maxDepth,
+			...scopeParams,
+			cteLimit,
+			maxCandidates + 1,
+			maxDepth,
+			...scopeParams,
+			...stateParams,
+			rootId,
+			limit + 1,
+		) as Array<Record<string, unknown>>;
 
-	return rows
+	const items = rows
+		.slice(0, limit)
 		.map((row) =>
 			buildEmbeddedTweet(
 				db,
@@ -1175,6 +1411,13 @@ function listTweetDescendants(
 			),
 		)
 		.filter((tweet): tweet is EmbeddedTweet => Boolean(tweet));
+	return {
+		items,
+		truncated:
+			rows.length > limit ||
+			Boolean(rows[0]?.candidate_limited) ||
+			Boolean(rows[0]?.depth_limited),
+	};
 }
 
 function appendConversationTweets(
@@ -1183,18 +1426,32 @@ function appendConversationTweets(
 	items: EmbeddedTweet[],
 	remaining: number,
 ) {
+	let dropped = false;
 	for (const tweet of items) {
-		if (target.length >= remaining || seen.has(tweet.id)) continue;
+		if (seen.has(tweet.id)) continue;
+		if (target.length >= remaining) {
+			dropped = true;
+			continue;
+		}
 		seen.add(tweet.id);
 		target.push(tweet);
 	}
+	return dropped;
 }
 
 export function getTweetConversation(
 	tweetId: string,
 	limit = 80,
 	db: Database = getReadDb(),
+	accountId?: string,
 ): TweetConversation | null {
+	const scopedAccountId = accountId;
+	if (
+		scopedAccountId !== undefined &&
+		!hasTweetAccountMembership(db, tweetId, scopedAccountId)
+	) {
+		return null;
+	}
 	const urlExpansionCache: UrlExpansionCache = new Map();
 	const profileByHandleCache: ProfileByHandleCache = new Map();
 	const resolveProfileByHandle = (handle: string) =>
@@ -1204,11 +1461,14 @@ export function getTweetConversation(
 		urlExpansionCache,
 		tweetId,
 		resolveProfileByHandle,
+		scopedAccountId,
 	);
 	if (!anchor) return null;
 
 	const ancestors: EmbeddedTweet[] = [];
+	const ancestorIds = new Set([anchor.id]);
 	let current = anchor;
+	let ancestorTruncated = false;
 	const ancestorLimit = Math.min(12, Math.max(0, limit - 1));
 	for (let depth = 0; depth < ancestorLimit && current.replyToId; depth += 1) {
 		const parent = getTweetById(
@@ -1216,10 +1476,26 @@ export function getTweetConversation(
 			urlExpansionCache,
 			current.replyToId,
 			resolveProfileByHandle,
+			scopedAccountId,
 		);
-		if (!parent || ancestors.some((tweet) => tweet.id === parent.id)) break;
+		if (!parent) break;
+		if (ancestorIds.has(parent.id)) {
+			ancestorTruncated = true;
+			break;
+		}
 		ancestors.push(parent);
+		ancestorIds.add(parent.id);
 		current = parent;
+	}
+	if (current.replyToId && ancestors.length >= ancestorLimit) {
+		const omittedParent = getTweetById(
+			db,
+			urlExpansionCache,
+			current.replyToId,
+			resolveProfileByHandle,
+			scopedAccountId,
+		);
+		if (omittedParent) ancestorTruncated = true;
 	}
 
 	const required = [...ancestors].reverse();
@@ -1238,24 +1514,47 @@ export function getTweetConversation(
 		anchor.id,
 		remainingAfterRequired,
 		resolveProfileByHandle,
+		scopedAccountId,
 	);
-	appendConversationTweets(items, seen, focusedDescendants, limit);
+	const focusedDescendantsDropped = appendConversationTweets(
+		items,
+		seen,
+		focusedDescendants.items,
+		limit,
+	);
+	let descendantTruncated =
+		focusedDescendants.truncated || focusedDescendantsDropped;
 
-	if (items.length < limit && root.id !== anchor.id) {
+	if (root.id !== anchor.id) {
 		const ambientDescendants = listTweetDescendants(
 			db,
 			urlExpansionCache,
 			root.id,
 			limit,
 			resolveProfileByHandle,
+			scopedAccountId,
 		);
-		appendConversationTweets(items, seen, ambientDescendants, limit);
+		const ambientDescendantsDropped = appendConversationTweets(
+			items,
+			seen,
+			ambientDescendants.items,
+			limit,
+		);
+		descendantTruncated =
+			descendantTruncated ||
+			ambientDescendants.truncated ||
+			ambientDescendantsDropped;
 	}
 
-	items.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+	items.sort(
+		(left, right) =>
+			left.createdAt.localeCompare(right.createdAt) ||
+			left.id.localeCompare(right.id),
+	);
 
 	return {
 		anchorId: anchor.id,
 		items,
+		truncated: ancestorTruncated || descendantTruncated,
 	};
 }

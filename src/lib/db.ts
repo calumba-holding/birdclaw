@@ -946,14 +946,54 @@ function createDatabaseConnection(
 	});
 }
 
+function closeDatabaseIgnoringErrors(db: Database) {
+	try {
+		db.close();
+	} catch {
+		// Preserve the error that triggered cleanup.
+	}
+}
+
 function createReadDatabaseConnection(dbPath: string) {
 	const db = createDatabaseConnection(dbPath, "reader", { readonly: true });
-	db.exec(`
-	  pragma busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS};
-	  pragma foreign_keys = on;
-	  pragma query_only = on;
-	`);
-	return db;
+	try {
+		db.exec(`
+		  pragma busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS};
+		  pragma foreign_keys = on;
+		  pragma query_only = on;
+		`);
+		return db;
+	} catch (error) {
+		closeDatabaseIgnoringErrors(db);
+		throw error;
+	}
+}
+
+function createReadDatabasePool(
+	dbPath: string,
+	validateFirst?: (db: Database) => void,
+) {
+	const pool: Database[] = [];
+	try {
+		const first = createReadDatabaseConnection(dbPath);
+		pool.push(first);
+		validateFirst?.(first);
+		pool.push(createReadDatabaseConnection(dbPath));
+		return pool;
+	} catch (error) {
+		for (const db of pool) closeDatabaseIgnoringErrors(db);
+		throw error;
+	}
+}
+
+function assertCurrentDatabaseSchema(db: Database) {
+	const expectedVersion = DATABASE_MIGRATIONS.at(-1)?.version ?? 0;
+	const actualVersion = getDatabaseSchemaVersion(db);
+	if (actualVersion !== expectedVersion) {
+		throw new Error(
+			`Birdclaw database schema ${String(actualVersion)} is not ready for version ${String(expectedVersion)}`,
+		);
+	}
 }
 
 function nextReadDb() {
@@ -971,30 +1011,22 @@ export function getReadDb(options: InitDatabaseOptions = {}) {
 	initDatabase(options);
 	if (readDbs.length === 0) {
 		const { dbPath } = getBirdclawPaths();
-		readDbs = Array.from({ length: 2 }, () =>
-			createReadDatabaseConnection(dbPath),
-		);
+		readDbs = createReadDatabasePool(dbPath);
 	}
 	return nextReadDb();
 }
 
 export function getStrictReadDb() {
-	if (readDbs.length > 0) return nextReadDb();
+	if (readDbs.length > 0) {
+		assertCurrentDatabaseSchema(readDbs[0] as Database);
+		return nextReadDb();
+	}
 	const { dbPath } = getBirdclawPaths();
 	if (!existsSync(dbPath)) {
 		throw new Error("Birdclaw database is not initialized");
 	}
 
-	const first = createReadDatabaseConnection(dbPath);
-	const expectedVersion = DATABASE_MIGRATIONS.at(-1)?.version ?? 0;
-	const actualVersion = getDatabaseSchemaVersion(first);
-	if (actualVersion !== expectedVersion) {
-		first.close();
-		throw new Error(
-			`Birdclaw database schema ${String(actualVersion)} is not ready for version ${String(expectedVersion)}`,
-		);
-	}
-	readDbs = [first, createReadDatabaseConnection(dbPath)];
+	readDbs = createReadDatabasePool(dbPath, assertCurrentDatabaseSchema);
 	return nextReadDb();
 }
 

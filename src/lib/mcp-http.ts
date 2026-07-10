@@ -1,19 +1,35 @@
 import { createHash, timingSafeEqual } from "node:crypto";
-import { isIP } from "node:net";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { LOCAL_WEB_PEER_HEADER } from "./local-peer";
-import { createBirdclawMcpServer } from "./mcp-tools";
+import { getStrictReadDb } from "./db";
+import { type McpConfig, readMcpConfig } from "./mcp-config";
+import {
+	assertValidMcpAccountScope,
+	createBirdclawMcpServer,
+	type McpAccountScope,
+} from "./mcp-tools";
+import type { Database } from "./sqlite";
 
-const MCP_MAX_BODY_BYTES = 64 * 1024;
-const MCP_REQUEST_TIMEOUT_MS = 30_000;
+export const MCP_MAX_BODY_BYTES = 64 * 1024;
+export const MCP_REQUEST_TIMEOUT_MS = 30_000;
 const MCP_RATE_CAPACITY = 20;
 const MCP_RATE_REFILL_PER_MS = 1 / 1_000;
 const MCP_MAX_CONCURRENT = 4;
 
-type McpConfig = {
-	token: string;
-	publicUrl: URL;
-};
+export interface BirdclawMcpRuntime {
+	config: McpConfig;
+	account: McpAccountScope;
+	serverVersion: string;
+}
+
+export interface McpRequestContext {
+	isLoopbackPeer: boolean;
+	timeoutMs?: number;
+}
+
+export interface BirdclawMcpExchange {
+	response: Response;
+	finalize(): void;
+}
 
 type RateBucket = {
 	tokens: number;
@@ -28,6 +44,7 @@ class McpHttpError extends Error {
 		readonly status: number,
 		message: string,
 		readonly headers?: HeadersInit,
+		readonly jsonRpcCode = -32000,
 	) {
 		super(message);
 	}
@@ -59,47 +76,59 @@ function jsonRpcErrorResponse(
 	);
 }
 
-function isLoopbackHostname(hostname: string) {
-	const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-	return (
-		normalized === "localhost" ||
-		normalized === "::1" ||
-		(isIP(normalized) === 4 && normalized.split(".")[0] === "127")
-	);
+function resolveMcpAccount(
+	db: Database,
+	selector: string | undefined,
+): McpAccountScope {
+	const normalizedHandle = selector?.replace(/^@/u, "").toLowerCase();
+	const row = selector
+		? (db
+				.prepare(
+					`select id, handle
+					 from accounts
+					 where id = ?
+					    or lower(ltrim(handle, '@')) = ?
+					 order by case when id = ? then 0 else 1 end,
+					          is_default desc,
+					          created_at asc
+					 limit 1`,
+				)
+				.get(selector, normalizedHandle, selector) as
+				| { id: string; handle: string }
+				| undefined)
+		: (db
+				.prepare(
+					`select id, handle
+					 from accounts
+					 order by is_default desc, created_at asc
+					 limit 1`,
+				)
+				.get() as { id: string; handle: string } | undefined);
+	if (!row) {
+		throw new Error(
+			selector
+				? "BIRDCLAW_MCP_ACCOUNT does not match a local Birdclaw account"
+				: "Birdclaw MCP requires an initialized database with a local account; run birdclaw init/import first",
+		);
+	}
+	assertValidMcpAccountScope(row);
+	return row;
 }
 
-function resolveMcpConfig(): McpConfig | null {
-	const token = process.env.BIRDCLAW_MCP_TOKEN;
-	const publicUrlValue = process.env.BIRDCLAW_MCP_PUBLIC_URL;
-	if (!token || !publicUrlValue) return null;
-	if (
-		token !== token.trim() ||
-		/\s/u.test(token) ||
-		Buffer.byteLength(token) < 32
-	) {
-		return null;
+export function prepareBirdclawMcpRuntime(
+	serverVersion: string,
+): BirdclawMcpRuntime | null {
+	const state = readMcpConfig();
+	if (state.kind === "disabled") return null;
+	if (state.kind === "invalid") {
+		throw new Error(`Invalid Birdclaw MCP configuration: ${state.message}`);
 	}
-
-	let publicUrl: URL;
-	try {
-		publicUrl = new URL(publicUrlValue);
-	} catch {
-		return null;
-	}
-	if (
-		publicUrl.pathname !== "/mcp" ||
-		publicUrl.search ||
-		publicUrl.hash ||
-		publicUrl.username ||
-		publicUrl.password ||
-		(publicUrl.protocol !== "https:" &&
-			!(
-				publicUrl.protocol === "http:" && isLoopbackHostname(publicUrl.hostname)
-			))
-	) {
-		return null;
-	}
-	return { token, publicUrl };
+	const db = getStrictReadDb();
+	return {
+		config: state.config,
+		account: resolveMcpAccount(db, state.config.accountSelector),
+		serverVersion,
+	};
 }
 
 function tokenDigest(value: string) {
@@ -120,19 +149,27 @@ function authorizeRequest(request: Request, config: McpConfig) {
 	return expectedDigest.toString("hex");
 }
 
-function validateHostAndOrigin(request: Request, config: McpConfig) {
-	if (
-		process.env.BIRDCLAW_LOCAL_WEB !== "socket" ||
-		request.headers.get(LOCAL_WEB_PEER_HEADER) !== "1"
-	) {
+function validateHostAndOrigin(
+	request: Request,
+	config: McpConfig,
+	context: McpRequestContext,
+) {
+	if (!context.isLoopbackPeer) {
 		throw new McpHttpError(403, "MCP requires a loopback origin connection");
 	}
+	const actualHost = request.headers.get("host");
 	const requestUrl = new URL(request.url);
 	if (
+		!actualHost ||
+		actualHost.toLowerCase() !== config.publicUrl.host.toLowerCase() ||
+		requestUrl.host.toLowerCase() !== config.publicUrl.host.toLowerCase() ||
 		requestUrl.pathname !== "/mcp" ||
-		requestUrl.host.toLowerCase() !== config.publicUrl.host.toLowerCase()
+		request.url.includes("?") ||
+		request.url.includes("#") ||
+		requestUrl.search ||
+		requestUrl.hash
 	) {
-		throw new McpHttpError(403, "Forbidden host");
+		throw new McpHttpError(403, "Forbidden host or path");
 	}
 
 	const origin = request.headers.get("origin");
@@ -249,7 +286,6 @@ async function readJsonBody(request: Request, deadlineSignal?: AbortSignal) {
 			if (done) break;
 			total += value.byteLength;
 			if (total > MCP_MAX_BODY_BYTES) {
-				await reader.cancel();
 				throw new McpHttpError(413, "MCP request body is too large");
 			}
 			chunks.push(value);
@@ -257,6 +293,11 @@ async function readJsonBody(request: Request, deadlineSignal?: AbortSignal) {
 	} finally {
 		request.signal.removeEventListener("abort", onClientAbort);
 		deadlineSignal?.removeEventListener("abort", onDeadline);
+		try {
+			reader.releaseLock();
+		} catch {
+			// Cancellation may already have released the reader.
+		}
 	}
 	const body = Buffer.concat(
 		chunks.map((chunk) => Buffer.from(chunk)),
@@ -265,10 +306,23 @@ async function readJsonBody(request: Request, deadlineSignal?: AbortSignal) {
 	try {
 		parsed = JSON.parse(body) as unknown;
 	} catch {
-		throw new McpHttpError(400, "Invalid JSON request body");
+		throw new McpHttpError(400, "Invalid JSON request body", undefined, -32700);
 	}
 	if (Array.isArray(parsed)) {
-		throw new McpHttpError(400, "JSON-RPC batches are disabled");
+		throw new McpHttpError(
+			400,
+			"JSON-RPC batches are disabled",
+			undefined,
+			-32600,
+		);
+	}
+	if (parsed === null || typeof parsed !== "object") {
+		throw new McpHttpError(
+			400,
+			"JSON-RPC request body must be an object",
+			undefined,
+			-32600,
+		);
 	}
 	return parsed;
 }
@@ -305,69 +359,101 @@ function secureResponse(response: Response) {
 	});
 }
 
-async function handleBirdclawMcpRequestWithTimeout(
+async function handleBirdclawMcpExchangeWithTimeout(
 	request: Request,
+	runtime: BirdclawMcpRuntime | null,
+	context: McpRequestContext,
 	requestTimeoutMs: number,
-) {
+): Promise<BirdclawMcpExchange> {
 	let release: (() => void) | undefined;
 	let server: ReturnType<typeof createBirdclawMcpServer> | undefined;
-	let transport: WebStandardStreamableHTTPServerTransport | undefined;
+	let response: Response;
 	try {
-		const config = resolveMcpConfig();
-		if (!config) {
+		if (!runtime) {
 			throw new McpHttpError(503, "Birdclaw MCP is not configured");
 		}
-		const principal = authorizeRequest(request, config);
-		validateHostAndOrigin(request, config);
+		const principal = authorizeRequest(request, runtime.config);
+		validateHostAndOrigin(request, runtime.config, context);
+		release = acquireRateLimit(principal);
 
 		if (request.method !== "POST") {
-			return jsonRpcErrorResponse(405, "Method not allowed", -32000, {
+			response = jsonRpcErrorResponse(405, "Method not allowed", -32000, {
 				allow: "POST",
 			});
+		} else {
+			response = await withRequestDeadline(async (deadlineSignal) => {
+				const parsedBody = await readJsonBody(request, deadlineSignal);
+				server = createBirdclawMcpServer({
+					version: runtime.serverVersion,
+					account: runtime.account,
+				});
+				const transport = new WebStandardStreamableHTTPServerTransport({
+					sessionIdGenerator: undefined,
+					enableJsonResponse: true,
+				});
+				await server.connect(transport);
+				if (deadlineSignal.aborted) throw new McpTimeoutError();
+				return transport.handleRequest(request, { parsedBody });
+			}, requestTimeoutMs);
+			response = secureResponse(response);
 		}
-
-		release = acquireRateLimit(principal);
-		const response = await withRequestDeadline(async (deadlineSignal) => {
-			const parsedBody = await readJsonBody(request, deadlineSignal);
-			server = createBirdclawMcpServer();
-			transport = new WebStandardStreamableHTTPServerTransport({
-				sessionIdGenerator: undefined,
-				enableJsonResponse: true,
-			});
-			await server.connect(transport);
-			if (deadlineSignal.aborted) throw new McpTimeoutError();
-			return transport.handleRequest(request, { parsedBody });
-		}, requestTimeoutMs);
-		return secureResponse(response);
 	} catch (error) {
 		if (error instanceof McpHttpError) {
-			return jsonRpcErrorResponse(
+			response = jsonRpcErrorResponse(
 				error.status,
 				error.message,
-				-32000,
+				error.jsonRpcCode,
 				error.headers,
 			);
+		} else if (error instanceof McpTimeoutError) {
+			response = jsonRpcErrorResponse(504, "MCP request timed out", -32603);
+		} else {
+			response = jsonRpcErrorResponse(500, "Internal MCP server error", -32603);
 		}
-		if (error instanceof McpTimeoutError) {
-			return jsonRpcErrorResponse(504, "MCP request timed out", -32603);
-		}
-		return jsonRpcErrorResponse(500, "Internal MCP server error", -32603);
 	} finally {
-		release?.();
-		await Promise.allSettled([server?.close(), transport?.close()]);
+		await Promise.allSettled([server?.close()]);
 	}
+
+	let finalized = false;
+	return {
+		response,
+		finalize() {
+			if (finalized) return;
+			finalized = true;
+			release?.();
+		},
+	};
 }
 
-export function handleBirdclawMcpRequest(request: Request) {
-	return handleBirdclawMcpRequestWithTimeout(request, MCP_REQUEST_TIMEOUT_MS);
+export function handleBirdclawMcpExchange(
+	request: Request,
+	runtime: BirdclawMcpRuntime | null,
+	context: McpRequestContext,
+) {
+	return handleBirdclawMcpExchangeWithTimeout(
+		request,
+		runtime,
+		context,
+		context.timeoutMs ?? MCP_REQUEST_TIMEOUT_MS,
+	);
+}
+
+export async function handleBirdclawMcpRequest(
+	request: Request,
+	runtime: BirdclawMcpRuntime | null,
+	context: McpRequestContext,
+) {
+	const exchange = await handleBirdclawMcpExchange(request, runtime, context);
+	exchange.finalize();
+	return exchange.response;
 }
 
 export const __test__ = {
-	resolveMcpConfig,
+	resolveMcpAccount,
 	tokenDigest,
 	isJsonContentType,
 	readJsonBody,
-	handleRequestWithTimeout: handleBirdclawMcpRequestWithTimeout,
+	handleExchangeWithTimeout: handleBirdclawMcpExchangeWithTimeout,
 	resetRateLimits() {
 		rateBuckets.clear();
 	},
