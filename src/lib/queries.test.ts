@@ -1323,6 +1323,18 @@ describe("birdclaw queries", () => {
 				},
 			]),
 		});
+		db.prepare(
+			`insert into tweet_collections (
+				account_id, tweet_id, kind, collected_at, source, raw_json, updated_at
+			) values
+				('acct_studio', 'tweet_retweeted_original', 'likes', ?, 'test', '{}', ?),
+				('acct_studio', 'tweet_retweeted_original', 'bookmarks', ?, 'test', '{}', ?)`,
+		).run(
+			"2026-03-09T12:02:00.000Z",
+			"2026-03-09T12:02:00.000Z",
+			"2026-03-09T12:02:00.000Z",
+			"2026-03-09T12:02:00.000Z",
+		);
 		insertTestTweet(db, {
 			id: "tweet_retweet_ref",
 			text: "RT @Dimillian: Actual original tweet content",
@@ -1452,6 +1464,28 @@ describe("birdclaw queries", () => {
 			author: {
 				handle: "Dimillian",
 			},
+		});
+		insertTestCollection(
+			db,
+			"tweet_retweeted_original",
+			"likes",
+			"2026-03-09T12:04:00.000Z",
+		);
+		insertTestCollection(
+			db,
+			"tweet_retweeted_original",
+			"bookmarks",
+			"2026-03-09T12:04:00.000Z",
+		);
+		const retweetWithPrimaryState = listTimelineItems({
+			resource: "home",
+			account: "acct_primary",
+			limit: 20,
+		}).find((item) => item.id === "tweet_retweet_ref");
+		expect(retweetWithPrimaryState?.retweetedTweet).toMatchObject({
+			id: "tweet_retweeted_original",
+			liked: true,
+			bookmarked: true,
 		});
 		expect(replyItem?.replyToTweet?.id).toBe("tweet_001");
 		expect(mediaItem?.media[0]?.altText).toBe("Pricing survey chart");
