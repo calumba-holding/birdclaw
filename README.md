@@ -276,6 +276,14 @@ private proxy requires `BIRDCLAW_ALLOW_REMOTE_WEB=1`. To require an app-level
 token too, set `BIRDCLAW_WEB_TOKEN` and send it as `x-birdclaw-token` or a
 `birdclaw_token` cookie.
 
+The same process can expose a separate, read-only Streamable HTTP MCP endpoint
+at `/mcp`. It stays disabled until `BIRDCLAW_MCP_TOKEN` and the exact
+`BIRDCLAW_MCP_PUBLIC_URL` are configured. MCP can search cached tweets and read
+cached threads; it cannot access DMs, sync X, call OpenAI, write files, or invoke
+any compose/moderation API. The origin remains loopback-only; terminate TLS in a
+same-host private proxy or tunnel. See [MCP server](docs/mcp.md) for client and
+private proxy configuration.
+
 Use the Sync button in Home, Mentions, Likes, Bookmarks, or DMs to run the matching live sync from the web UI and then reload the local view. Manual sync remains the default because live reads can be slow, auth-dependent, or rate-limited. Home and Mentions also offer opt-in per-account auto-sync at 5m, 10m, 15m, 30m, or 1h intervals; the browser pauses hidden-page runs, prevents overlap, and backs off after failures.
 
 `BIRDCLAW_ALLOWED_HOSTS` applies only to the source `pnpm dev` server, not the

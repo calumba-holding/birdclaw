@@ -14,6 +14,7 @@ import { Route as RateLimitsRouteImport } from './routes/rate-limits'
 import { Route as ProfileAnalyzeRouteImport } from './routes/profile-analyze'
 import { Route as NetworkMapRouteImport } from './routes/network-map'
 import { Route as MentionsRouteImport } from './routes/mentions'
+import { Route as McpRouteImport } from './routes/mcp'
 import { Route as LinksRouteImport } from './routes/links'
 import { Route as LikesRouteImport } from './routes/likes'
 import { Route as InboxRouteImport } from './routes/inbox'
@@ -65,6 +66,11 @@ const NetworkMapRoute = NetworkMapRouteImport.update({
 const MentionsRoute = MentionsRouteImport.update({
   id: '/mentions',
   path: '/mentions',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const McpRoute = McpRouteImport.update({
+  id: '/mcp',
+  path: '/mcp',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LinksRoute = LinksRouteImport.update({
@@ -213,6 +219,7 @@ export interface FileRoutesByFullPath {
   '/inbox': typeof InboxRoute
   '/likes': typeof LikesRoute
   '/links': typeof LinksRoute
+  '/mcp': typeof McpRoute
   '/mentions': typeof MentionsRoute
   '/network-map': typeof NetworkMapRoute
   '/profile-analyze': typeof ProfileAnalyzeRoute
@@ -247,6 +254,7 @@ export interface FileRoutesByTo {
   '/inbox': typeof InboxRoute
   '/likes': typeof LikesRoute
   '/links': typeof LinksRoute
+  '/mcp': typeof McpRoute
   '/mentions': typeof MentionsRoute
   '/network-map': typeof NetworkMapRoute
   '/profile-analyze': typeof ProfileAnalyzeRoute
@@ -282,6 +290,7 @@ export interface FileRoutesById {
   '/inbox': typeof InboxRoute
   '/likes': typeof LikesRoute
   '/links': typeof LinksRoute
+  '/mcp': typeof McpRoute
   '/mentions': typeof MentionsRoute
   '/network-map': typeof NetworkMapRoute
   '/profile-analyze': typeof ProfileAnalyzeRoute
@@ -318,6 +327,7 @@ export interface FileRouteTypes {
     | '/inbox'
     | '/likes'
     | '/links'
+    | '/mcp'
     | '/mentions'
     | '/network-map'
     | '/profile-analyze'
@@ -352,6 +362,7 @@ export interface FileRouteTypes {
     | '/inbox'
     | '/likes'
     | '/links'
+    | '/mcp'
     | '/mentions'
     | '/network-map'
     | '/profile-analyze'
@@ -386,6 +397,7 @@ export interface FileRouteTypes {
     | '/inbox'
     | '/likes'
     | '/links'
+    | '/mcp'
     | '/mentions'
     | '/network-map'
     | '/profile-analyze'
@@ -421,6 +433,7 @@ export interface RootRouteChildren {
   InboxRoute: typeof InboxRoute
   LikesRoute: typeof LikesRoute
   LinksRoute: typeof LinksRoute
+  McpRoute: typeof McpRoute
   MentionsRoute: typeof MentionsRoute
   NetworkMapRoute: typeof NetworkMapRoute
   ProfileAnalyzeRoute: typeof ProfileAnalyzeRoute
@@ -481,6 +494,13 @@ declare module '@tanstack/react-router' {
       path: '/mentions'
       fullPath: '/mentions'
       preLoaderRoute: typeof MentionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mcp': {
+      id: '/mcp'
+      path: '/mcp'
+      fullPath: '/mcp'
+      preLoaderRoute: typeof McpRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/links': {
@@ -685,6 +705,7 @@ const rootRouteChildren: RootRouteChildren = {
   InboxRoute: InboxRoute,
   LikesRoute: LikesRoute,
   LinksRoute: LinksRoute,
+  McpRoute: McpRoute,
   MentionsRoute: MentionsRoute,
   NetworkMapRoute: NetworkMapRoute,
   ProfileAnalyzeRoute: ProfileAnalyzeRoute,

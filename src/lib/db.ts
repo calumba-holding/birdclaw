@@ -1,9 +1,11 @@
+import { existsSync } from "node:fs";
 import NativeSqliteDatabase, {
 	type Database,
 	SQLITE_BUSY_TIMEOUT_MS,
 } from "./sqlite";
 import { ensureBirdclawDirs, getBirdclawPaths } from "./config";
 import {
+	getDatabaseSchemaVersion,
 	type DatabaseMigration,
 	runDatabaseMigrations,
 } from "./database-migrations";
@@ -892,6 +894,15 @@ const DATABASE_MIGRATIONS: readonly DatabaseMigration[] = [
 			ensureXListTables(db);
 		},
 	},
+	{
+		version: 4,
+		name: "index cached tweet reply traversal",
+		up: (db) => {
+			db.exec(
+				"create index if not exists idx_tweets_reply_to on tweets(reply_to_id)",
+			);
+		},
+	},
 ];
 
 function ensureDemoData(db: Database) {
@@ -935,6 +946,22 @@ function createDatabaseConnection(
 	});
 }
 
+function createReadDatabaseConnection(dbPath: string) {
+	const db = createDatabaseConnection(dbPath, "reader", { readonly: true });
+	db.exec(`
+	  pragma busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS};
+	  pragma foreign_keys = on;
+	  pragma query_only = on;
+	`);
+	return db;
+}
+
+function nextReadDb() {
+	const db = readDbs[readDbIndex % readDbs.length] as Database;
+	readDbIndex = (readDbIndex + 1) % readDbs.length;
+	return db;
+}
+
 export function getNativeDb(options: InitDatabaseOptions = {}) {
 	initDatabase(options);
 	return nativeDb as Database;
@@ -944,21 +971,31 @@ export function getReadDb(options: InitDatabaseOptions = {}) {
 	initDatabase(options);
 	if (readDbs.length === 0) {
 		const { dbPath } = getBirdclawPaths();
-		readDbs = Array.from({ length: 2 }, () => {
-			const db = createDatabaseConnection(dbPath, "reader", {
-				readonly: true,
-			});
-			db.exec(`
-			  pragma busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS};
-			  pragma foreign_keys = on;
-			  pragma query_only = on;
-			`);
-			return db;
-		});
+		readDbs = Array.from({ length: 2 }, () =>
+			createReadDatabaseConnection(dbPath),
+		);
 	}
-	const db = readDbs[readDbIndex % readDbs.length] as Database;
-	readDbIndex = (readDbIndex + 1) % readDbs.length;
-	return db;
+	return nextReadDb();
+}
+
+export function getStrictReadDb() {
+	if (readDbs.length > 0) return nextReadDb();
+	const { dbPath } = getBirdclawPaths();
+	if (!existsSync(dbPath)) {
+		throw new Error("Birdclaw database is not initialized");
+	}
+
+	const first = createReadDatabaseConnection(dbPath);
+	const expectedVersion = DATABASE_MIGRATIONS.at(-1)?.version ?? 0;
+	const actualVersion = getDatabaseSchemaVersion(first);
+	if (actualVersion !== expectedVersion) {
+		first.close();
+		throw new Error(
+			`Birdclaw database schema ${String(actualVersion)} is not ready for version ${String(expectedVersion)}`,
+		);
+	}
+	readDbs = [first, createReadDatabaseConnection(dbPath)];
+	return nextReadDb();
 }
 
 export function closeDatabase() {

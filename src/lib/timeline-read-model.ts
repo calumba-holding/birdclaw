@@ -827,8 +827,10 @@ export function buildTimelineItemsQuery(
 const SEARCH_SNIPPET_SQL =
 	"snippet(tweets_fts, 1, '<mark>', '</mark>', '...', 16)";
 
-export function listTimelineItems(query: TimelineQuery): TimelineItem[] {
-	const db = getReadDb();
+export function listTimelineItems(
+	query: TimelineQuery,
+	db: Database = getReadDb(),
+): TimelineItem[] {
 	const {
 		includeQualityReason = false,
 		lowQualityThreshold,
@@ -1136,6 +1138,7 @@ function listTweetDescendants(
 	resolveProfileByHandle?: (handle: string) => ProfileRecord,
 ) {
 	if (limit <= 0) return [];
+	const candidateLimit = Math.max(128, limit * 8 + 1);
 	const rows = db
 		.prepare(
 			`
@@ -1148,6 +1151,7 @@ function listTweetDescendants(
         from tweets child
         join branch on child.reply_to_id = branch.id
         where branch.depth < 8
+		limit ?
       )
       ${conversationTweetSelect()}
       join branch on branch.id = t.id
@@ -1156,7 +1160,9 @@ function listTweetDescendants(
       limit ?
       `,
 		)
-		.all(rootId, rootId, limit) as Array<Record<string, unknown>>;
+		.all(rootId, candidateLimit, rootId, limit) as Array<
+		Record<string, unknown>
+	>;
 
 	return rows
 		.map((row) =>
@@ -1187,8 +1193,8 @@ function appendConversationTweets(
 export function getTweetConversation(
 	tweetId: string,
 	limit = 80,
+	db: Database = getReadDb(),
 ): TweetConversation | null {
-	const db = getReadDb();
 	const urlExpansionCache: UrlExpansionCache = new Map();
 	const profileByHandleCache: ProfileByHandleCache = new Map();
 	const resolveProfileByHandle = (handle: string) =>
@@ -1203,7 +1209,8 @@ export function getTweetConversation(
 
 	const ancestors: EmbeddedTweet[] = [];
 	let current = anchor;
-	for (let depth = 0; depth < 12 && current.replyToId; depth += 1) {
+	const ancestorLimit = Math.min(12, Math.max(0, limit - 1));
+	for (let depth = 0; depth < ancestorLimit && current.replyToId; depth += 1) {
 		const parent = getTweetById(
 			db,
 			urlExpansionCache,

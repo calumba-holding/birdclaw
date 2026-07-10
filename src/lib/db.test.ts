@@ -205,6 +205,12 @@ describe("database init", () => {
 		expect(quotedIndex).toEqual([
 			expect.objectContaining({ name: "quoted_tweet_id" }),
 		]);
+		const replyIndex = db
+			.prepare("pragma index_info(idx_tweets_reply_to)")
+			.all() as Array<{ name: string }>;
+		expect(replyIndex).toEqual([
+			expect.objectContaining({ name: "reply_to_id" }),
+		]);
 
 		const syncCacheColumnNames = db
 			.prepare("pragma table_info(sync_cache)")
@@ -348,7 +354,7 @@ describe("database init", () => {
 		}) as number;
 		expect(busyTimeout).toBe(SQLITE_BUSY_TIMEOUT_MS);
 		expect(db.pragma("foreign_keys", { simple: true })).toBe(1);
-		expect(db.pragma("user_version", { simple: true })).toBe(3);
+		expect(db.pragma("user_version", { simple: true })).toBe(4);
 	});
 
 	it("does not request a write lock for completed startup backfills", async () => {
