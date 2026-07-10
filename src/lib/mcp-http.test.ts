@@ -614,11 +614,26 @@ describe("Birdclaw MCP HTTP server", () => {
 			accountId: "acct_primary",
 			accountHandle: "@steipete",
 			id: "primary_reply_anchor",
-			text: "primary-visible-reply-needle",
+			text: "foreignparentisolationneedle",
+		});
+		insertCachedTweet({
+			accountId: "acct_primary",
+			accountHandle: "@steipete",
+			id: "primary_visible_parent",
+			text: "primary visible parent",
+		});
+		insertCachedTweet({
+			accountId: "acct_primary",
+			accountHandle: "@steipete",
+			id: "primary_visible_child",
+			text: "visibleparentcontrolneedle",
 		});
 		getNativeDb()
 			.prepare("update tweets set reply_to_id = ? where id = ?")
 			.run("secondary_secret_tweet", "primary_reply_anchor");
+		getNativeDb()
+			.prepare("update tweets set reply_to_id = ? where id = ?")
+			.run("primary_visible_parent", "primary_visible_child");
 		resetDatabaseRuntimeMetricsForTests();
 
 		const search = await rpc({
@@ -655,7 +670,7 @@ describe("Birdclaw MCP HTTP server", () => {
 			method: "tools/call",
 			params: {
 				name: "search_tweets",
-				arguments: { query: "primary-visible-reply-needle", limit: 5 },
+				arguments: { query: "foreignparentisolationneedle", limit: 5 },
 			},
 		});
 		const visibleSearchResult = visibleSearch.body.result as {
@@ -696,6 +711,30 @@ describe("Birdclaw MCP HTTP server", () => {
 		expect(JSON.stringify(visibleThread.body)).not.toContain(
 			"secondary_secret_tweet",
 		);
+
+		const accessibleSearch = await rpc({
+			jsonrpc: "2.0",
+			id: 6,
+			method: "tools/call",
+			params: {
+				name: "search_tweets",
+				arguments: {
+					query: "visibleparentcontrolneedle",
+					limit: 5,
+				},
+			},
+		});
+		const accessibleSearchResult = accessibleSearch.body.result as {
+			structuredContent: {
+				items: Array<{ id: string; replyToId: string | null }>;
+			};
+		};
+		expect(accessibleSearchResult.structuredContent.items).toEqual([
+			expect.objectContaining({
+				id: "primary_visible_child",
+				replyToId: "primary_visible_parent",
+			}),
+		]);
 		expect(getDatabaseRuntimeMetrics().connections.writeStatements).toBe(0);
 	});
 
